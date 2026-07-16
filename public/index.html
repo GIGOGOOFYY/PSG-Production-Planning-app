@@ -1105,7 +1105,7 @@ async function loadPlan(){
         <div class="plan-day-cap">
           <i class="fa fa-check-circle" style="color:var(--ok);margin-right:5px"></i>
           Scheduled: <strong>${Math.round(cumSqft).toLocaleString()} sqft</strong> &nbsp;·&nbsp; ${countUnique(scheduled.map(r=>r.o))} order(s)${scheduled.length!==countUnique(scheduled.map(r=>r.o))?' ('+scheduled.length+' lines)':''} &nbsp;·&nbsp;
-          Remaining load: <strong>${Math.round(totalSqft).toLocaleString()} sqft</strong> &nbsp;·&nbsp;
+          Remaining load: <strong>${Math.round(totalSqft-cumSqft).toLocaleString()} sqft</strong> &nbsp;·&nbsp;
           Utilisation: <strong style="color:${utilColor}">${utilPct}%</strong>
         </div>
       </div>
