@@ -1064,7 +1064,7 @@ async function loadPlan(){
       <div class="plan-wc-hdr">
         <h4><i class="fa fa-industry" style="margin-right:6px;opacity:.8"></i>${WN[wc]} <span style="font-size:.72rem;font-weight:500;opacity:.7">(${wc})</span></h4>
         <div class="plan-wc-meta">
-          <span>📦 ${countUnique(scheduled.map(r=>r.o))} oblique(s) today${scheduled.length!==countUnique(scheduled.map(r=>r.o))?' ('+scheduled.length+' lines)':''}</span>
+          <span>📦 ${countUnique(scheduled.map(r=>r.o))} order(s) today${scheduled.length!==countUnique(scheduled.map(r=>r.o))?' ('+scheduled.length+' lines)':''}</span>
           <span>📐 ${Math.round(cumSqft).toLocaleString()} / ${capSqft.toLocaleString()} sqft</span>
           <span style="color:${utilColor};font-weight:800">${utilPct}% utilised</span>
           ${overflow.length?`<span style="color:#ffb347;font-weight:700">⚠ ${overflow.length} overflow</span>`:''}
@@ -1091,7 +1091,7 @@ async function loadPlan(){
           <div>${r.isLateOrder?'<span class="badge r">LATE</span>':r.daysLeft===0?'<span class="badge o">Due Today</span>':r.daysLeft===1?'<span class="badge o">Due Tomorrow</span>':'<span class="badge g">On Time</span>'}</div>
         </div>`).join('')}
         ${overflow.length?`
-          <div class="plan-overflow-lbl"><i class="fa fa-arrow-down"></i> Overflow — ${countUnique(overflow.map(r=>r.o))} oblique(s)${overflow.length!==countUnique(overflow.map(r=>r.o))?' ('+overflow.length+' lines)':''} (${Math.round(overflow.reduce((s,r)=>s+r.sqft,0)).toLocaleString()} sqft) cannot be scheduled today</div>
+          <div class="plan-overflow-lbl"><i class="fa fa-arrow-down"></i> Overflow — ${countUnique(overflow.map(r=>r.o))} order(s)${overflow.length!==countUnique(overflow.map(r=>r.o))?' ('+overflow.length+' lines)':''} (${Math.round(overflow.reduce((s,r)=>s+r.sqft,0)).toLocaleString()} sqft) cannot be scheduled today</div>
           ${overflow.map((r,i)=>`<div class="plan-row plan-overflow">
             <div class="plan-pri" style="color:var(--red)">${scheduled.length+i+1}</div>
             <div><strong style="color:var(--muted);font-size:.8rem">${r.o.order_number}</strong></div>
@@ -1104,7 +1104,7 @@ async function loadPlan(){
         `:''}
         <div class="plan-day-cap">
           <i class="fa fa-check-circle" style="color:var(--ok);margin-right:5px"></i>
-          Scheduled: <strong>${Math.round(cumSqft).toLocaleString()} sqft</strong> &nbsp;·&nbsp; ${countUnique(scheduled.map(r=>r.o))} oblique(s)${scheduled.length!==countUnique(scheduled.map(r=>r.o))?' ('+scheduled.length+' lines)':''} &nbsp;·&nbsp;
+          Scheduled: <strong>${Math.round(cumSqft).toLocaleString()} sqft</strong> &nbsp;·&nbsp; ${countUnique(scheduled.map(r=>r.o))} order(s)${scheduled.length!==countUnique(scheduled.map(r=>r.o))?' ('+scheduled.length+' lines)':''} &nbsp;·&nbsp;
           Remaining load: <strong>${Math.round(totalSqft).toLocaleString()} sqft</strong> &nbsp;·&nbsp;
           Utilisation: <strong style="color:${utilColor}">${utilPct}%</strong>
         </div>
@@ -1344,7 +1344,7 @@ async function loadWC(wc){
   const totalDone=orders.reduce((s,o)=>s+(o.done_qty||0),0);
   const uniqueObl=countUnique(orders);
   const linesTxt=orders.length!==uniqueObl?` (${orders.length} lines)`:'';
-  $('wc-sum').innerHTML=`${uniqueObl} oblique(s)${linesTxt} &nbsp;·&nbsp; <span style="color:var(--green-dark);font-weight:600">Recv: ${totalRec}</span> &nbsp;·&nbsp; Done: ${totalDone} &nbsp;·&nbsp; <span style="color:${totalRec-totalDone>0?'var(--red)':'var(--ok)'};font-weight:700">Bal: ${totalRec-totalDone}</span>`;
+  $('wc-sum').innerHTML=`${uniqueObl} order(s)${linesTxt} &nbsp;·&nbsp; <span style="color:var(--green-dark);font-weight:600">Recv: ${totalRec}</span> &nbsp;·&nbsp; Done: ${totalDone} &nbsp;·&nbsp; <span style="color:${totalRec-totalDone>0?'var(--red)':'var(--ok)'};font-weight:700">Bal: ${totalRec-totalDone}</span>`;
   $('wc-thead').innerHTML=`<th>Oblique</th><th>Client</th><th>Delivery</th><th>OTD</th><th>Qty</th><th>Received</th><th>Done</th><th>Balance</th><th>NCRs</th><th>Completed At</th><th>Save</th><th>NCR</th>`;
   $('wc-tbody').innerHTML=orders.length?orders.map(o=>{
     const rec=o.received_qty||0,done=o.done_qty||0,bal=rec-done;
@@ -1384,7 +1384,7 @@ async function loadQCReady(){
   $('wc-title').innerHTML=`<i class="fa fa-check-double" style="color:var(--ok)"></i> QC Ready <span style="font-size:.72rem;font-weight:500;color:var(--subtle)">— Awaiting Quality Check & Dispatch</span>`;
   const qcUniq=countUnique(qcReady);
   const qcLinesTxt=qcReady.length!==qcUniq?` (${qcReady.length} lines)`:'';
-  $('wc-sum').textContent=`${qcUniq} oblique(s)${qcLinesTxt} with all work centers complete`;
+  $('wc-sum').textContent=`${qcUniq} order(s)${qcLinesTxt} with all work centers complete`;
   $('wc-thead').innerHTML=`<th>Oblique</th><th>Client</th><th>Delivery</th><th>OTD</th><th>Type</th><th>Qty</th><th>Work Centers</th><th>Action</th>`;
   const today=new Date();today.setHours(0,0,0,0);
   $('wc-tbody').innerHTML=qcReady.length?qcReady.map(o=>{
