@@ -1020,19 +1020,29 @@ function filterWC(){
 
 async function saveAllProg(){
   const wc=CUR.wc;if(!wc||wc==='QC')return;
-  const inputs=document.querySelectorAll('[id^="done-"]');
-  if(!inputs.length)return;
+  // Snapshot inputs NOW before any async work mutates the DOM
+  const snapshot=[...document.querySelectorAll('[id^="done-"]')].map(inp=>({
+    oid:parseInt(inp.id.replace('done-','')),
+    done:parseInt(inp.value)||0
+  }));
+  if(!snapshot.length)return;
+  const btn=$('btn-save-all');
+  const resetBtn=()=>{if(btn&&document.body.contains(btn)){btn.disabled=false;btn.innerHTML='<i class="fa fa-save"></i> Save All';}};
+  if(btn){btn.disabled=true;btn.innerHTML='<i class="fa fa-spinner fa-spin"></i> Saving…';}
   let saved=0,completed=0;
-  const btn=$('btn-save-all');if(btn){btn.disabled=true;btn.innerHTML='<i class="fa fa-spinner fa-spin"></i> Saving…';}
-  for(const inp of inputs){
-    const oid=parseInt(inp.id.replace('done-',''));
-    const done=parseInt(inp.value)||0;
-    const res=await post(`/api/workcenter/${wc}/process`,{order_id:oid,done_qty:done});
-    if(!res.error){saved++;if(res.completed)completed++;}
+  try{
+    for(const {oid,done} of snapshot){
+      const res=await post(`/api/workcenter/${wc}/process`,{order_id:oid,done_qty:done});
+      if(!res.error){saved++;if(res.completed)completed++;}
+    }
+    toast('Saved '+saved+' row(s)'+(completed?' · '+completed+' completed ✅':''),'ok');
+  }catch(e){
+    toast('Save error: '+e.message,'err');
+  }finally{
+    resetBtn();
+    await reloadAll();
+    loadWC(wc);
   }
-  toast('Saved '+saved+' row(s)'+(completed?' · '+completed+' completed ✅':''),'ok');
-  if(btn){btn.disabled=false;btn.innerHTML='<i class="fa fa-save"></i> Save All';}
-  await reloadAll();loadWC(wc);
 }
 
 async function loadWC(wc){
