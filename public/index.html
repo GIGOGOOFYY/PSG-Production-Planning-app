@@ -703,10 +703,30 @@ async function apiHandler(url,opts){
 
   if((m=path.match(/^\/api\/workcenter\/([A-Za-z]+)$/))&&method==='GET'){
     const wc=m[1].toUpperCase(), col=wc.toLowerCase();
-    return DB.orders.filter(o=>o[col]&&o.status!=='Cancelled').map(o=>{
-      const p=progFor(o.id,wc); const ncr_count=DB.ncr.filter(x=>x.order_id===o.id&&x.work_center===wc).length;
-      return {...o,received_qty:p?p.received_qty:0,done_qty:p?p.done_qty:0,completed_at:p?p.completed_at:null,ncr_count,delivery_status:isLate(o.delivery_date)?'Late':'On Time'};
-    }).sort((a,b)=>String(a.delivery_date||'').localeCompare(String(b.delivery_date||'')));
+    const rows=[];
+    for(const o of DB.orders.filter(o=>o[col]&&!['Cancelled','On Hold','QC Passed'].includes(o.status))){
+      let p=progFor(o.id,wc);
+      // Auto-receive: if this WC is the current active WC for this order and no progress row exists, create one
+      if(!p){
+        const wcs=getOrderWCs(o);
+        const firstWC=wcs[0];
+        // Find the last WC that has a completed progress row to determine current active WC
+        let activeWC=firstWC;
+        for(const w of wcs){const pw=progFor(o.id,w);if(pw&&pw.received_qty>0){activeWC=w;if(pw.done_qty<pw.received_qty)break;}}
+        if(activeWC===wc){
+          // This WC is active — auto-create received entry
+          const newP={order_id:o.id,work_center:wc,received_qty:o.order_qty,done_qty:0,started_at:new Date().toISOString()};
+          const saved=await ins('wc_progress',newP);
+          DB.wc_progress.push(saved||{...newP,id:Date.now()});
+          p=progFor(o.id,wc);
+        }
+      }
+      if(!p) continue; // not yet at this WC
+      if(p.done_qty>=p.received_qty&&p.received_qty>0) continue; // completed — already moved on
+      const ncr_count=DB.ncr.filter(x=>x.order_id===o.id&&x.work_center===wc).length;
+      rows.push({...o,received_qty:p.received_qty,done_qty:p.done_qty,completed_at:p.completed_at||null,ncr_count,delivery_status:isLate(o.delivery_date)?'Late':'On Time'});
+    }
+    return rows.sort((a,b)=>String(a.delivery_date||'').localeCompare(String(b.delivery_date||'')));
   }
   if((m=path.match(/^\/api\/workcenter\/([A-Za-z]+)\/process$/))&&method==='POST'){
     const wc=m[1].toUpperCase(); const order=orderById(body.order_id); if(!order)return{error:'Order not found'};
