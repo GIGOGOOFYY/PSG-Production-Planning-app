@@ -200,12 +200,15 @@ tr:hover td{background:var(--green-pale)}
   #main{margin-left:0!important}
   body{background:#fff!important;color:#000!important}
   .card,.kpi{box-shadow:none!important;break-inside:avoid}
-  .plan-wc-block{box-shadow:none!important;break-inside:avoid;margin-bottom:14px!important}
-  .plan-wc-hdr{-webkit-print-color-adjust:exact;print-color-adjust:exact;border-radius:6px 6px 0 0!important}
+  .plan-wc-block{box-shadow:none!important;break-inside:auto;break-before:auto;margin-bottom:14px!important;page-break-inside:auto}
+  .plan-wc-hdr{-webkit-print-color-adjust:exact;print-color-adjust:exact;border-radius:6px 6px 0 0!important;break-after:avoid;page-break-after:avoid}
+  .plan-row{break-inside:avoid;page-break-inside:avoid}
+  .plan-overflow-lbl{break-after:avoid;page-break-after:avoid}
   .plan-util-bar{display:none}
   #content{padding:6px 10px!important}
   .print-header{display:block!important;margin-bottom:10px!important;padding-bottom:8px!important}
   #plan-content{margin-top:0!important}
+  .no-print{display:none!important}
   a{text-decoration:none}
 }
 .print-header{display:none;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid #1e5c3a}
