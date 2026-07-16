@@ -197,6 +197,7 @@ tr:hover td{background:var(--green-pale)}
 /* ── Print ── */
 @media print{
   #sb,#topbar,.no-print{display:none!important}
+  body,#main{min-height:0!important;height:auto!important;display:block!important}
   #main{margin-left:0!important}
   body{background:#fff!important;color:#000!important}
   .card,.kpi{box-shadow:none!important;break-inside:avoid}
