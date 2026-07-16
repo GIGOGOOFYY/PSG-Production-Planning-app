@@ -176,6 +176,24 @@ tr:hover td{background:var(--green-pale)}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
 ::-webkit-scrollbar-thumb:hover{background:var(--subtle)}
 
+/* ── Production Plan ── */
+.plan-wc-block{margin-bottom:22px}
+.plan-wc-hdr{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--green-dark);color:#fff;border-radius:10px 10px 0 0}
+.plan-wc-hdr h4{font-size:.88rem;font-weight:800;letter-spacing:.3px}
+.plan-wc-meta{font-size:.75rem;opacity:.85;display:flex;gap:14px}
+.plan-util-bar{height:5px;background:rgba(255,255,255,.2);border-radius:0}
+.plan-util-fill{height:100%;border-radius:0;transition:width .5s ease}
+.plan-row{display:grid;grid-template-columns:40px 1fr 1fr 120px 60px 90px 80px;gap:0;align-items:center;padding:8px 14px;border-bottom:1px solid var(--border-light);font-size:.78rem}
+.plan-row:last-child{border-bottom:none}
+.plan-row:hover{background:var(--green-pale)}
+.plan-row.plan-late{background:#fff8f8}
+.plan-row.plan-late:hover{background:#fee2e2}
+.plan-pri{font-size:.7rem;font-weight:800;color:var(--subtle);text-align:center}
+.plan-overflow{background:rgba(231,76,60,.06);border-top:2px dashed rgba(231,76,60,.3)}
+.plan-overflow-lbl{padding:8px 14px;font-size:.73rem;font-weight:700;color:var(--red);background:rgba(231,76,60,.05);display:flex;align-items:center;gap:6px}
+.plan-day-cap{background:var(--green-pale);border-top:2px solid var(--border);padding:7px 14px;font-size:.73rem;color:var(--green-dark);font-weight:700;border-radius:0 0 10px 10px}
+.plan-empty{padding:20px;text-align:center;color:var(--subtle);font-size:.82rem}
+
 /* ── Dark Mode ── */
 body.dark{
   --bg:#0f1a13;--card:#162019;--txt:#e2ede6;--muted:#7aaa88;--subtle:#5a8068;
@@ -217,6 +235,7 @@ body.dark .ch{background:#111e16}
     <div class="nav-section">Overview</div>
     <button class="nl active" onclick="nav('dashboard')"><i class="fa fa-chart-pie"></i> Dashboard</button>
     <button class="nl" onclick="nav('orders')"><i class="fa fa-list-alt"></i> Order Book</button>
+    <button class="nl" onclick="nav('plan')"><i class="fa fa-calendar-alt"></i> Production Plan</button>
     <button class="nl" onclick="nav('capacity')"><i class="fa fa-tachometer-alt"></i> Capacity</button>
     <div class="nav-section">Work Centers</div>
     <button class="nl" onclick="nav('wc','CT')"><i class="fa fa-cut"></i> Cutting <span class="wc-b">CT</span></button>
@@ -334,6 +353,35 @@ body.dark .ch{background:#111e16}
           <th>#</th><th>Oblique</th><th>Client</th><th>Type</th><th>Delivery</th><th>H × W mm</th><th>Qty</th><th>Work Centers</th><th>Status</th><th id="th-actions" style="display:none">Actions</th>
         </tr></thead><tbody id="orders-tbody"></tbody></table></div>
       </div>
+    </div>
+
+    <!-- Production Plan -->
+    <div id="page-plan" class="page">
+      <div class="sb-bar" style="gap:10px;flex-wrap:wrap;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <label style="font-size:.78rem;font-weight:600;color:var(--muted)">Plan date:</label>
+          <input type="date" class="fc" id="plan-date" style="width:150px" onchange="loadPlan()">
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <label style="font-size:.78rem;font-weight:600;color:var(--muted)">Work Center:</label>
+          <select class="fc" id="plan-wc" style="width:160px" onchange="loadPlan()">
+            <option value="ALL">All Work Centers</option>
+            <option value="CT">CT — Cutting</option>
+            <option value="GR">GR — Grinding</option>
+            <option value="PE">PE — Polish Edge</option>
+            <option value="BV">BV — Beveling</option>
+            <option value="HL">HL — Hole / Drill</option>
+            <option value="PR">PR — Printing</option>
+            <option value="TG">TG — Tempering</option>
+            <option value="BG">BG — Bending</option>
+            <option value="LG">LG — Lamination</option>
+            <option value="FR">FR — Frosting</option>
+            <option value="DG">DG — Double Glazing</option>
+          </select>
+        </div>
+        <button class="btn btn-p btn-sm" onclick="loadPlan()" style="margin-left:auto"><i class="fa fa-sync-alt"></i> Refresh</button>
+      </div>
+      <div id="plan-content"></div>
     </div>
 
     <!-- Capacity -->
@@ -829,6 +877,130 @@ async function init(){
 }
 async function logout(){await post('/api/auth/logout',{});showLogin();}
 
+/* ── Production Plan ── */
+function sqftOrder(o){ return (o.height_mm/304.8)*(o.width_mm/304.8)*o.order_qty; }
+
+async function loadPlan(){
+  await ensureLoaded();
+  // Set date default to today
+  const dateEl=$('plan-date');
+  if(!dateEl.value) dateEl.value=new Date().toISOString().slice(0,10);
+  const planDate=new Date(dateEl.value+'T00:00:00');
+  const selWC=$('plan-wc')?.value||'ALL';
+  const wcsToShow=selWC==='ALL'?['CT','GR','PE','BV','HL','PR','TG','BG','LG','FR','DG']:[selWC];
+  const holidays=DB.holidays.map(h=>h.date?.slice(0,10));
+
+  // Check if plan date is a holiday
+  const planDateStr=dateEl.value;
+  if(holidays.includes(planDateStr)){
+    $('plan-content').innerHTML=`<div class="card"><div class="cb" style="text-align:center;padding:30px"><i class="fa fa-calendar-times" style="font-size:2rem;color:var(--amber);margin-bottom:10px;display:block"></i><div style="font-weight:700;font-size:.95rem;color:var(--amber)">Holiday — ${planDateStr}</div><div style="color:var(--muted);margin-top:6px;font-size:.82rem">No production scheduled on this date.</div></div></div>`;
+    return;
+  }
+
+  const today=new Date(); today.setHours(0,0,0,0);
+  const isToday=planDateStr===today.toISOString().slice(0,10);
+  const html=[];
+
+  for(const wc of wcsToShow){
+    const col=wc.toLowerCase();
+    // Get capacity for this WC
+    const capRow=DB.capacity.find(c=>c.work_center===wc)||{capacity_sqft:0};
+    const capSqft=capRow.capacity_sqft||0;
+
+    // Get active orders at this WC that still have work to do
+    const orders=DB.orders.filter(o=>o[col]&&!['Cancelled','On Hold','QC Passed'].includes(o.status));
+    if(!orders.length) continue;
+
+    // For each order, compute remaining sqft at this WC
+    const rows=[];
+    for(const o of orders){
+      const p=DB.wc_progress.find(x=>x.order_id===o.id&&x.work_center===wc);
+      const recvd=p?p.received_qty:0;
+      const done=p?p.done_qty:0;
+      const rem=recvd>0?(recvd-done):o.order_qty; // remaining pieces
+      if(rem<=0) continue; // already done
+      const sqft=((o.height_mm/304.8)*(o.width_mm/304.8))*rem;
+      const dDate=o.delivery_date?new Date(o.delivery_date+'T00:00:00'):null;
+      const daysLeft=dDate?Math.ceil((dDate-planDate)/(1000*60*60*24)):999;
+      const isLateOrder=dDate&&dDate<planDate;
+      rows.push({o,rem,sqft,daysLeft,isLateOrder,dDate});
+    }
+    if(!rows.length) continue;
+
+    // Sort: late first (most overdue), then by delivery date ascending
+    rows.sort((a,b)=>{
+      if(a.isLateOrder&&!b.isLateOrder) return -1;
+      if(!a.isLateOrder&&b.isLateOrder) return 1;
+      return (a.daysLeft-b.daysLeft);
+    });
+
+    // Fill capacity
+    let cumSqft=0; let cutoffIdx=rows.length;
+    for(let i=0;i<rows.length;i++){
+      if(capSqft>0&&cumSqft+rows[i].sqft>capSqft&&i>0){cutoffIdx=i;break;}
+      cumSqft+=rows[i].sqft;
+    }
+    const scheduled=rows.slice(0,cutoffIdx>0&&capSqft>0?cutoffIdx:rows.length);
+    const overflow=capSqft>0?rows.slice(cutoffIdx>0?cutoffIdx:rows.length):[];
+    const utilPct=capSqft>0?Math.min(Math.round(cumSqft/capSqft*100),100):0;
+    const utilColor=utilPct>85?'#e74c3c':utilPct>65?'#f39c12':'#27ae60';
+    const totalSqft=rows.reduce((s,r)=>s+r.sqft,0);
+
+    html.push(`<div class="plan-wc-block">
+      <div class="plan-wc-hdr">
+        <h4><i class="fa fa-industry" style="margin-right:6px;opacity:.8"></i>${WN[wc]} <span style="font-size:.72rem;font-weight:500;opacity:.7">(${wc})</span></h4>
+        <div class="plan-wc-meta">
+          <span>📦 ${scheduled.length} orders today</span>
+          <span>📐 ${Math.round(cumSqft).toLocaleString()} / ${capSqft.toLocaleString()} sqft</span>
+          <span style="color:${utilColor};font-weight:800">${utilPct}% utilised</span>
+          ${overflow.length?`<span style="color:#ffb347;font-weight:700">⚠ ${overflow.length} overflow</span>`:''}
+        </div>
+      </div>
+      <div class="plan-util-bar"><div class="plan-util-fill" style="width:${utilPct}%;background:${utilColor}"></div></div>
+      <div class="card" style="border-radius:0 0 10px 10px;border-top:none">
+        <div style="display:grid;grid-template-columns:40px 1fr 1fr 120px 60px 90px 80px;gap:0;padding:7px 14px;background:var(--green-pale);border-bottom:2px solid var(--border)">
+          <div style="font-size:.65rem;font-weight:800;color:var(--green-dark);text-transform:uppercase">Pri</div>
+          <div style="font-size:.65rem;font-weight:800;color:var(--green-dark);text-transform:uppercase">Oblique</div>
+          <div style="font-size:.65rem;font-weight:800;color:var(--green-dark);text-transform:uppercase">Client</div>
+          <div style="font-size:.65rem;font-weight:800;color:var(--green-dark);text-transform:uppercase">Delivery</div>
+          <div style="font-size:.65rem;font-weight:800;color:var(--green-dark);text-transform:uppercase">Pcs</div>
+          <div style="font-size:.65rem;font-weight:800;color:var(--green-dark);text-transform:uppercase">Sqft</div>
+          <div style="font-size:.65rem;font-weight:800;color:var(--green-dark);text-transform:uppercase">Status</div>
+        </div>
+        ${scheduled.map((r,i)=>`<div class="plan-row${r.isLateOrder?' plan-late':''}">
+          <div class="plan-pri">${i+1}</div>
+          <div><strong style="color:var(--green-dark);font-size:.8rem">${r.o.order_number}</strong><div style="font-size:.62rem;color:var(--subtle)">${r.o.parent_order||''}</div></div>
+          <div style="font-size:.77rem">${r.o.client_name}</div>
+          <div style="font-size:.76rem">${r.dDate?r.dDate.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}):'-'}</div>
+          <div style="font-weight:700;font-size:.82rem">${r.rem}</div>
+          <div style="font-size:.78rem;color:var(--muted)">${Math.round(r.sqft).toLocaleString()}</div>
+          <div>${r.isLateOrder?'<span class="badge r">LATE</span>':r.daysLeft===0?'<span class="badge o">Due Today</span>':r.daysLeft===1?'<span class="badge o">Due Tomorrow</span>':'<span class="badge g">On Time</span>'}</div>
+        </div>`).join('')}
+        ${overflow.length?`
+          <div class="plan-overflow-lbl"><i class="fa fa-arrow-down"></i> Overflow — ${overflow.length} order(s) (${Math.round(overflow.reduce((s,r)=>s+r.sqft,0)).toLocaleString()} sqft) cannot be scheduled today</div>
+          ${overflow.map((r,i)=>`<div class="plan-row plan-overflow">
+            <div class="plan-pri" style="color:var(--red)">${scheduled.length+i+1}</div>
+            <div><strong style="color:var(--muted);font-size:.8rem">${r.o.order_number}</strong></div>
+            <div style="font-size:.77rem;color:var(--muted)">${r.o.client_name}</div>
+            <div style="font-size:.76rem;color:var(--muted)">${r.dDate?r.dDate.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}):'-'}</div>
+            <div style="font-weight:700;font-size:.82rem;color:var(--muted)">${r.rem}</div>
+            <div style="font-size:.78rem;color:var(--subtle)">${Math.round(r.sqft).toLocaleString()}</div>
+            <div>${r.isLateOrder?'<span class="badge r">LATE</span>':'<span class="badge gy">Deferred</span>'}</div>
+          </div>`).join('')}
+        `:''}
+        <div class="plan-day-cap">
+          <i class="fa fa-check-circle" style="color:var(--ok);margin-right:5px"></i>
+          Scheduled: <strong>${Math.round(cumSqft).toLocaleString()} sqft</strong> &nbsp;·&nbsp; ${scheduled.length} order(s) &nbsp;·&nbsp;
+          Remaining load: <strong>${Math.round(totalSqft).toLocaleString()} sqft</strong> &nbsp;·&nbsp;
+          Utilisation: <strong style="color:${utilColor}">${utilPct}%</strong>
+        </div>
+      </div>
+    </div>`);
+  }
+
+  $('plan-content').innerHTML=html.length?html.join(''):`<div class="card"><div class="plan-empty"><i class="fa fa-check-circle" style="color:var(--ok);font-size:1.5rem;display:block;margin-bottom:8px"></i>No active orders found for the selected work center.</div></div>`;
+}
+
 /* ── Supabase status indicator ── */
 function updateSbStatus(ok){
   const dot=document.getElementById('sb-dot');
@@ -859,17 +1031,18 @@ function nav(page,wc){
   CUR={page,wc:wc||null};
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nl').forEach(l=>l.classList.remove('active'));
-  const titles={dashboard:'Dashboard',orders:'Order Book',capacity:'Capacity Analysis',
+  const titles={dashboard:'Dashboard',orders:'Order Book',plan:'Production Plan',capacity:'Capacity Analysis',
     ncr:'NCR Log',holidays:'Holidays',users:'User Management',import:'Import from Excel',
     wc:wc?(wc==='QC'?'QC Ready — Awaiting Dispatch':`${WN[wc]} (${wc})`):'Work Center'};
   $('page-title').textContent=titles[page]||page;
   $(page==='wc'?'page-wc':`page-${page}`).classList.add('active');
-  const nlMap={dashboard:0,orders:1,capacity:2,CT:3,GR:4,PE:5,BV:6,HL:7,PR:8,TG:9,BG:10,LG:11,FR:12,DG:13,QC:14,ncr:15,holidays:16,users:17,import:18};
+  const nlMap={dashboard:0,orders:1,plan:2,capacity:3,CT:4,GR:5,PE:6,BV:7,HL:8,PR:9,TG:10,BG:11,LG:12,FR:13,DG:14,QC:15,ncr:16,holidays:17,users:18,import:19};
   const nls=document.querySelectorAll('.nl');
   const idx=page==='wc'?nlMap[wc]:nlMap[page];
   if(nls[idx]) nls[idx].classList.add('active');
   if(page==='dashboard') loadDash();
   if(page==='orders') loadOrders();
+  if(page==='plan') loadPlan();
   if(page==='capacity') loadCapacity();
   if(page==='wc') loadWC(wc);
   if(page==='ncr') loadNCR();
