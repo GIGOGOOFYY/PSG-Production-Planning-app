@@ -194,6 +194,22 @@ tr:hover td{background:var(--green-pale)}
 .plan-day-cap{background:var(--green-pale);border-top:2px solid var(--border);padding:7px 14px;font-size:.73rem;color:var(--green-dark);font-weight:700;border-radius:0 0 10px 10px}
 .plan-empty{padding:20px;text-align:center;color:var(--subtle);font-size:.82rem}
 
+/* ── Print ── */
+@media print{
+  #sb,#topbar,.no-print{display:none!important}
+  #main{margin-left:0!important}
+  body{background:#fff!important;color:#000!important}
+  .card,.kpi,.plan-wc-block{box-shadow:none!important;break-inside:avoid}
+  .plan-wc-hdr{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .plan-util-bar{display:none}
+  #content{padding:10px!important}
+  .print-header{display:block!important}
+  a{text-decoration:none}
+}
+.print-header{display:none;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid #1e5c3a}
+.print-header h2{font-size:1.1rem;font-weight:800;color:#1e5c3a}
+.print-header p{font-size:.78rem;color:#6b8f76;margin-top:3px}
+
 /* ── Dark Mode ── */
 body.dark{
   --bg:#0f1a13;--card:#162019;--txt:#e2ede6;--muted:#7aaa88;--subtle:#5a8068;
@@ -278,11 +294,16 @@ body.dark .ch{background:#111e16}
     </div>
     <div class="tb-right">
       <span id="today-lbl"></span>
+      <button id="btn-print" class="btn btn-sm" onclick="printPage()" style="display:none;background:#fff;border:1px solid var(--border);color:var(--green-dark)" title="Print / Save as PDF"><i class="fa fa-print"></i> Print</button>
       <button id="btn-new-order" class="btn btn-p btn-sm" onclick="openOrderModal()" style="display:none"><i class="fa fa-plus"></i> New Order</button>
     </div>
   </div>
 
   <div id="content">
+    <div class="print-header" id="print-header">
+      <h2 id="print-title">PSG Production Planning</h2>
+      <p id="print-subtitle"></p>
+    </div>
 
     <!-- Dashboard -->
     <div id="page-dashboard" class="page active">
@@ -325,7 +346,7 @@ body.dark .ch{background:#111e16}
         </div>
       </div>
 
-      <div class="card">
+      <div class="card no-print" id="late-orders-section">
         <div class="ch">
           <h3><i class="fa fa-clock"></i> Late Orders</h3>
           <button class="btn btn-o btn-sm" onclick="nav('orders')">View All</button>
@@ -877,6 +898,18 @@ async function init(){
 }
 async function logout(){await post('/api/auth/logout',{});showLogin();}
 
+function printPage(){
+  const page=CUR.page;
+  const dateStr=$('plan-date')?.value||new Date().toISOString().slice(0,10);
+  const wcSel=$('plan-wc')?.value||'ALL';
+  const subtitle=page==='plan'
+    ?`Production Plan · ${new Date(dateStr+'T00:00:00').toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'})} · ${wcSel==='ALL'?'All Work Centers':(WN[wcSel]||wcSel)}`
+    :`Dashboard · ${new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}`;
+  $('print-title').textContent='Pakistan Safety Glass Works — Production Planning';
+  $('print-subtitle').textContent=subtitle;
+  window.print();
+}
+
 /* ── Production Plan ── */
 function sqftOrder(o){ return (o.height_mm/304.8)*(o.width_mm/304.8)*o.order_qty; }
 
@@ -1040,6 +1073,9 @@ function nav(page,wc){
   const nls=document.querySelectorAll('.nl');
   const idx=page==='wc'?nlMap[wc]:nlMap[page];
   if(nls[idx]) nls[idx].classList.add('active');
+  // Show print button only on dashboard and production plan
+  const printBtn=$('btn-print');
+  if(printBtn) printBtn.style.display=(page==='dashboard'||page==='plan')?'':'none';
   if(page==='dashboard') loadDash();
   if(page==='orders') loadOrders();
   if(page==='plan') loadPlan();
