@@ -175,6 +175,22 @@ tr:hover td{background:var(--green-pale)}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
 ::-webkit-scrollbar-thumb:hover{background:var(--subtle)}
+
+/* ── Dark Mode ── */
+body.dark{
+  --bg:#0f1a13;--card:#162019;--txt:#e2ede6;--muted:#7aaa88;--subtle:#5a8068;
+  --border:#2a4033;--border-light:#1e3029;--green-pale:#111e16;--green-light:#1a2e22;
+}
+body.dark #topbar{background:#162019;border-color:#2a4033}
+body.dark .card{background:#162019;border-color:#2a4033}
+body.dark .kpi{background:#162019;border-color:#2a4033}
+body.dark th{background:#111e16}
+body.dark td{border-color:#2a4033}
+body.dark tr:hover td{background:#1e3029!important}
+body.dark .cap-item{background:#162019;border-color:#2a4033}
+body.dark input,body.dark select,body.dark textarea{background:#0f1a13;border-color:#2a4033;color:#e2ede6}
+body.dark .modal-box{background:#162019}
+body.dark .ch{background:#111e16}
 </style>
 </head>
 <body>
@@ -222,6 +238,16 @@ tr:hover td{background:var(--green-pale)}
       <button class="nl" onclick="nav('users')"><i class="fa fa-users-cog"></i> Users</button>
       <button class="nl" onclick="nav('import')"><i class="fa fa-file-import"></i> Import Excel</button>
     </div>
+  </div>
+  <!-- Supabase status indicator -->
+  <div id="sb-status" style="margin:8px 12px 4px;background:rgba(255,255,255,.07);border-radius:8px;padding:8px 12px;display:flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.1)">
+    <span id="sb-dot" style="width:8px;height:8px;border-radius:50%;background:#6b8f76;flex-shrink:0;transition:background .3s"></span>
+    <span id="sb-lbl" style="font-size:.7rem;color:rgba(255,255,255,.6);font-weight:500">Connecting…</span>
+  </div>
+  <!-- Theme toggle -->
+  <div style="margin:4px 12px 12px;display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-radius:8px;background:rgba(255,255,255,.05)">
+    <span style="font-size:.7rem;color:rgba(255,255,255,.5)">Theme</span>
+    <button id="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light mode" style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:6px;padding:3px 9px;cursor:pointer;font-size:.75rem;transition:all .15s">🌙 Dark</button>
   </div>
 </nav>
 
@@ -514,8 +540,9 @@ async function loadAll(){
   const res=await Promise.all(t.map(x=>_sb.from(x).select('*')));
   t.forEach((x,i)=>{ if(res[i].error) throw new Error(res[i].error.message||('load '+x+' failed')); DB[x]=res[i].data||[]; });
   _loaded=true;
+  if(typeof updateSbStatus==='function') updateSbStatus(true);
 }
-async function ensureLoaded(){ if(_loaded)return; if(!_loadP)_loadP=loadAll(); await _loadP; }
+async function ensureLoaded(){ if(_loaded)return; if(!_loadP)_loadP=loadAll().catch(e=>{if(typeof updateSbStatus==='function')updateSbStatus(false);throw e;}); await _loadP; }
 async function reloadAll(){ _loaded=false; _loadP=null; await ensureLoaded(); }
 
 /* ---- helpers ported from server.js ---- */
@@ -770,6 +797,32 @@ async function init(){
   nav('dashboard');
 }
 async function logout(){await post('/api/auth/logout',{});showLogin();}
+
+/* ── Supabase status indicator ── */
+function updateSbStatus(ok){
+  const dot=document.getElementById('sb-dot');
+  const lbl=document.getElementById('sb-lbl');
+  if(!dot||!lbl)return;
+  if(ok){dot.style.background='#27ae60';lbl.textContent='Cloud (Supabase)';lbl.style.color='rgba(255,255,255,.85)';}
+  else{dot.style.background='#e74c3c';lbl.textContent='Offline / Local';lbl.style.color='rgba(255,255,255,.5)';}
+}
+
+/* ── Theme toggle ── */
+function toggleTheme(){
+  const dark=document.body.classList.toggle('dark');
+  localStorage.setItem('psg_theme',dark?'dark':'light');
+  document.getElementById('theme-toggle').textContent=dark?'☀️ Light':'🌙 Dark';
+}
+(function initTheme(){
+  if(localStorage.getItem('psg_theme')==='dark'){
+    document.body.classList.add('dark');
+    // button not yet in DOM at parse time; set after DOMContentLoaded
+    document.addEventListener('DOMContentLoaded',()=>{
+      const b=document.getElementById('theme-toggle');
+      if(b)b.textContent='☀️ Light';
+    });
+  }
+})();
 
 function nav(page,wc){
   CUR={page,wc:wc||null};
