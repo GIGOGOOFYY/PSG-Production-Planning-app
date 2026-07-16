@@ -1,0 +1,13 @@
+{
+  "name": "psg-planner",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PSG Production Planning — single-file web app (Supabase + Cloudflare Workers)",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

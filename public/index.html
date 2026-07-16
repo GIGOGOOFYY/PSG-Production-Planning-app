@@ -1,0 +1,1140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>PSG — Production Planning</title>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+/* ── Design Tokens ── */
+:root{
+  --green:#2d7a4f;--green-dark:#1e5c3a;--green-mid:#3a9060;--green-light:#e8f5ee;--green-pale:#f2faf5;
+  --amber:#e67e22;--red:#e74c3c;--blue:#0891b2;--purple:#7c3aed;--gold:#f59e0b;
+  --ok:#27ae60;--warn:#f39c12;
+  --bg:#eef6f1;--card:#fff;--txt:#1a2e22;--muted:#6b8f76;--subtle:#9dbfaa;
+  --border:#cfe4d6;--border-light:#e0f0e6;
+  --sw:230px;--radius:14px;--radius-sm:8px;
+  --shadow:0 2px 12px rgba(30,92,58,.08);--shadow-md:0 6px 24px rgba(30,92,58,.13);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--txt);display:flex;min-height:100vh;font-size:14px}
+
+/* ── Sidebar ── */
+#sb{width:var(--sw);background:var(--green-dark);display:flex;flex-direction:column;position:fixed;top:0;left:0;height:100vh;z-index:100;overflow-y:auto}
+.sb-brand{padding:18px 18px 14px;background:var(--green-dark);border-bottom:1px solid rgba(255,255,255,.1)}
+.sb-brand h1{font-size:.95rem;font-weight:800;color:#fff;line-height:1.2;letter-spacing:-.3px}
+.sb-brand p{font-size:.65rem;color:rgba(255,255,255,.5);margin-top:3px}
+.sb-user{margin:10px 12px;background:rgba(255,255,255,.08);border-radius:10px;padding:9px 12px;display:flex;align-items:center;justify-content:space-between;border:1px solid rgba(255,255,255,.1)}
+.sb-user-info{display:flex;align-items:center;gap:8px}
+.sb-avatar{width:28px;height:28px;background:var(--green-mid);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:800;color:#fff;flex-shrink:0}
+.sb-uname{font-size:.75rem;font-weight:600;color:#fff}
+.role-pill{font-size:.58rem;background:rgba(255,255,255,.18);color:rgba(255,255,255,.9);border-radius:20px;padding:1px 7px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;display:block;margin-top:1px}
+.logout-btn{background:none;border:1px solid rgba(255,255,255,.2);color:rgba(255,255,255,.6);cursor:pointer;font-size:.7rem;padding:3px 8px;border-radius:6px;transition:all .15s}
+.logout-btn:hover{background:rgba(255,255,255,.12);color:#fff;border-color:rgba(255,255,255,.4)}
+.sb-nav{flex:1;padding:8px 0 12px}
+.nav-section{padding:14px 18px 5px;font-size:.6rem;font-weight:800;color:rgba(255,255,255,.3);text-transform:uppercase;letter-spacing:1.5px}
+.nl{display:flex;align-items:center;gap:9px;padding:8px 12px 8px 18px;color:rgba(255,255,255,.65);cursor:pointer;font-size:.8rem;font-weight:500;transition:all .13s;border:none;background:none;width:100%;text-align:left;border-left:3px solid transparent;margin:1px 0}
+.nl:hover{background:rgba(255,255,255,.08);color:#fff}
+.nl.active{background:rgba(255,255,255,.13);color:#fff;border-left-color:#fff;font-weight:700}
+.nl i{width:16px;text-align:center;font-size:.78rem;opacity:.8}
+.nl.active i{opacity:1}
+.wc-b{font-size:.58rem;background:rgba(255,255,255,.15);color:rgba(255,255,255,.8);border-radius:4px;padding:2px 6px;margin-left:auto;font-weight:800;letter-spacing:.5px}
+.nl.active .wc-b{background:rgba(255,255,255,.25);color:#fff}
+
+/* ── Main ── */
+#main{margin-left:var(--sw);flex:1;display:flex;flex-direction:column;min-height:100vh}
+
+/* ── Topbar ── */
+#topbar{background:#fff;border-bottom:1px solid var(--border);padding:0 26px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50;box-shadow:0 1px 0 var(--border),0 4px 12px rgba(30,92,58,.05)}
+.tb-left{display:flex;align-items:center;gap:12px}
+.tb-left h2{font-size:.95rem;font-weight:700;color:var(--green-dark)}
+.tb-breadcrumb{font-size:.75rem;color:var(--subtle);display:flex;align-items:center;gap:6px}
+.tb-right{display:flex;gap:8px;align-items:center}
+#today-lbl{font-size:.74rem;color:var(--muted);font-weight:500}
+
+/* ── Content ── */
+#content{padding:22px 26px;flex:1}
+.section-title{font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:var(--subtle);margin-bottom:10px}
+
+/* ── KPI Grid ── */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:14px;margin-bottom:20px}
+.kpi{background:#fff;border-radius:var(--radius);padding:18px;border:1px solid var(--border);box-shadow:var(--shadow);transition:all .2s;position:relative;overflow:hidden}
+.kpi:hover{box-shadow:var(--shadow-md);transform:translateY(-1px)}
+.kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;border-radius:var(--radius) var(--radius) 0 0}
+.kpi.green::before{background:var(--green)}.kpi.blue::before{background:var(--green)}.kpi.red::before{background:var(--red)}
+.kpi.orange::before{background:var(--amber)}.kpi.teal::before{background:var(--blue)}.kpi.purple::before{background:var(--purple)}
+.kpi .lbl{font-size:.66rem;font-weight:800;color:var(--subtle);text-transform:uppercase;letter-spacing:.8px}
+.kpi .val{font-size:2rem;font-weight:800;margin:6px 0 3px;line-height:1;letter-spacing:-1px}
+.kpi.blue .val,.kpi.green .val{color:var(--green-dark)}
+.kpi.red .val{color:var(--red)}.kpi.orange .val{color:var(--amber)}.kpi.teal .val{color:var(--blue)}.kpi.purple .val{color:var(--purple)}
+.kpi .sub{font-size:.68rem;color:var(--subtle)}
+.kpi-icon{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:1.6rem;opacity:.08}
+
+/* ── Cards ── */
+.card{background:#fff;border-radius:var(--radius);border:1px solid var(--border);box-shadow:var(--shadow);overflow:hidden}
+.card+.card,.card+.mt16,.mt16{margin-top:18px}
+.ch{padding:14px 18px;border-bottom:1px solid var(--border-light);display:flex;align-items:center;justify-content:space-between;background:var(--green-pale)}
+.ch h3{font-size:.84rem;font-weight:700;color:var(--green-dark);display:flex;align-items:center;gap:7px}
+.ch h3 i{color:var(--green);font-size:.8rem}
+.cb{padding:16px 18px}
+
+/* ── Capacity Bars ── */
+.cap-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
+.cap-item{padding:14px;border:1px solid var(--border-light);border-radius:10px;background:#fff;transition:box-shadow .2s}
+.cap-item:hover{box-shadow:var(--shadow)}
+.cap-hdr{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+.cap-nm{font-size:.78rem;font-weight:700;color:var(--txt)}
+.cap-code{font-size:.62rem;color:var(--subtle);background:var(--green-light);border-radius:4px;padding:1px 6px;font-weight:700;margin-left:4px}
+.cap-pct{font-size:.85rem;font-weight:800}
+.cap-bar{height:6px;background:var(--border-light);border-radius:4px;overflow:hidden}
+.cap-fill{height:100%;border-radius:4px;transition:width .6s ease}
+.cap-det{font-size:.67rem;color:var(--subtle);margin-top:5px}
+
+/* ── Tables ── */
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.8rem}
+thead{position:sticky;top:0;z-index:1}
+th{background:var(--green-pale);padding:10px 12px;text-align:left;font-weight:700;font-size:.67rem;color:var(--green-dark);text-transform:uppercase;letter-spacing:.6px;border-bottom:2px solid var(--border);white-space:nowrap}
+td{padding:10px 12px;border-bottom:1px solid var(--border-light);vertical-align:middle;color:var(--txt)}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--green-pale)}
+
+/* ── Badges ── */
+.badge{display:inline-flex;align-items:center;padding:2px 9px;border-radius:20px;font-size:.67rem;font-weight:700;letter-spacing:.3px;white-space:nowrap}
+.g{background:#dcfce7;color:#166534}.r{background:#fee2e2;color:#991b1b}.o{background:#fff7ed;color:#9a3412}
+.b{background:var(--green-light);color:var(--green-dark)}.gy{background:#f1f5f9;color:#475569}
+.t{background:#e0f2fe;color:#075985}.p{background:#f3e8ff;color:#6b21a8}
+
+/* ── WC Dots ── */
+.wc-dots{display:flex;gap:3px;flex-wrap:wrap}
+.wc-dot{width:24px;height:18px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.57rem;font-weight:800;letter-spacing:-.3px}
+.wc-dot.on{background:var(--green);color:#fff}.wc-dot.off{background:var(--border-light);color:var(--subtle)}
+
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:var(--radius-sm);border:1px solid transparent;font-size:.78rem;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap}
+.btn-p{background:var(--green);color:#fff;border-color:var(--green)}.btn-p:hover{background:var(--green-dark);border-color:var(--green-dark);box-shadow:0 3px 10px rgba(30,92,58,.25)}
+.btn-s{background:#27ae60;color:#fff}.btn-s:hover{background:#1e8449;box-shadow:0 3px 10px rgba(30,134,73,.25)}
+.btn-d{background:#fff;color:var(--red);border-color:#fecaca}.btn-d:hover{background:var(--red);color:#fff;border-color:var(--red)}
+.btn-o{background:#fff;border-color:var(--border);color:var(--txt)}.btn-o:hover{background:var(--green-pale);border-color:var(--green)}
+.btn-w{background:#fff;color:var(--amber);border-color:#fed7aa}.btn-w:hover{background:var(--amber);color:#fff}
+.btn-sm{padding:4px 10px;font-size:.72rem}.btn-ic{padding:5px 8px}
+
+/* ── Forms ── */
+.fg{display:flex;flex-direction:column;gap:5px}
+.fg label{font-size:.68rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.fc{padding:8px 11px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:.83rem;width:100%;background:#fff;color:var(--txt);transition:all .15s}
+.fc:focus{outline:none;border-color:var(--green);box-shadow:0 0 0 3px rgba(45,122,79,.12)}
+.fc-sm{padding:4px 8px;font-size:.76rem}
+.fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px}
+
+/* ── WC Chips ── */
+.wc-cbs{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}
+.wc-cb{display:flex;align-items:center;gap:4px;padding:5px 12px;border:1.5px solid var(--border);border-radius:20px;cursor:pointer;font-size:.75rem;font-weight:600;transition:all .15s;user-select:none;color:var(--muted)}
+.wc-cb:hover{border-color:var(--green);color:var(--green-dark);background:var(--green-pale)}
+.wc-cb.ck{background:var(--green);color:#fff;border-color:var(--green);box-shadow:0 2px 8px rgba(30,92,58,.2)}
+
+/* ── Modals ── */
+.mo{position:fixed;inset:0;background:rgba(15,35,22,.5);backdrop-filter:blur(4px);z-index:200;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s}
+.mo.open{opacity:1;pointer-events:all}
+.modal{background:#fff;border-radius:18px;width:92%;max-width:700px;max-height:92vh;overflow-y:auto;transform:translateY(24px) scale(.98);transition:all .2s;box-shadow:0 30px 80px rgba(0,0,0,.25)}
+.mo.open .modal{transform:translateY(0) scale(1)}
+.mh{padding:18px 22px;border-bottom:1px solid var(--border-light);display:flex;align-items:center;justify-content:space-between;background:var(--green-pale)}
+.mh h3{font-size:.95rem;font-weight:700;color:var(--green-dark)}
+.mb{padding:22px}
+.mf{padding:14px 22px;border-top:1px solid var(--border-light);display:flex;justify-content:flex-end;gap:9px;background:#fafcfb}
+
+/* ── Misc ── */
+.sb-bar{display:flex;gap:8px;margin-bottom:14px;align-items:center;flex-wrap:wrap}
+.pi{padding:4px 6px;border:1.5px solid var(--border);border-radius:6px;font-size:.77rem;text-align:center;width:66px}
+.pi:focus{outline:none;border-color:var(--green)}
+.page{display:none}.page.active{display:block}
+.dv{border:none;border-top:1px solid var(--border-light);margin:16px 0}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.emp{text-align:center;color:var(--subtle);padding:32px!important;font-size:.83rem}
+
+/* ── Dept Late ── */
+.dept-late-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:10px}
+.dl-card{padding:14px;border-radius:10px;background:linear-gradient(135deg,#fee2e2,#fff5f5);border:1px solid #fecaca;text-align:center}
+.dl-card .dl-wc{font-size:.8rem;font-weight:700;color:#991b1b}
+.dl-card .dl-cnt{font-size:1.6rem;font-weight:800;color:#dc2626;line-height:1.1}
+.dl-card .dl-lbl{font-size:.65rem;color:#b91c1c;margin-top:2px}
+
+/* ── Toast ── */
+#toast{position:fixed;bottom:22px;right:22px;z-index:999;display:flex;flex-direction:column;gap:8px}
+.tm{background:#fff;color:var(--txt);padding:11px 16px;border-radius:10px;font-size:.8rem;min-width:210px;animation:tIn .25s ease;box-shadow:0 8px 30px rgba(0,0,0,.15);border:1px solid var(--border);display:flex;align-items:center;gap:9px}
+.tm::before{content:'';width:4px;height:100%;position:absolute;left:0;top:0;border-radius:10px 0 0 10px}
+.tm{position:relative;padding-left:18px}
+.tm.ok{border-left:4px solid var(--ok)}.tm.err{border-left:4px solid var(--red)}.tm.warn{border-left:4px solid var(--warn)}
+@keyframes tIn{from{transform:translateX(60px);opacity:0}to{transform:translateX(0);opacity:1}}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+::-webkit-scrollbar-thumb:hover{background:var(--subtle)}
+</style>
+</head>
+<body>
+
+<!-- ── Sidebar ── -->
+<nav id="sb">
+  <div class="sb-brand">
+    <div>
+      <h1>Production Planning</h1>
+      <p>Pakistan Safety Glass Works</p>
+    </div>
+  </div>
+  <div class="sb-user">
+    <div class="sb-user-info">
+      <div class="sb-avatar" id="u-avatar">—</div>
+      <div>
+        <div class="sb-uname" id="u-name">—</div>
+        <span class="role-pill" id="u-role">—</span>
+      </div>
+    </div>
+    <button class="logout-btn" onclick="logout()" title="Logout"><i class="fa fa-sign-out-alt"></i></button>
+  </div>
+  <div class="sb-nav">
+    <div class="nav-section">Overview</div>
+    <button class="nl active" onclick="nav('dashboard')"><i class="fa fa-chart-pie"></i> Dashboard</button>
+    <button class="nl" onclick="nav('orders')"><i class="fa fa-list-alt"></i> Order Book</button>
+    <button class="nl" onclick="nav('capacity')"><i class="fa fa-tachometer-alt"></i> Capacity</button>
+    <div class="nav-section">Work Centers</div>
+    <button class="nl" onclick="nav('wc','CT')"><i class="fa fa-cut"></i> Cutting <span class="wc-b">CT</span></button>
+    <button class="nl" onclick="nav('wc','GR')"><i class="fa fa-circle-notch"></i> Grinding <span class="wc-b">GR</span></button>
+    <button class="nl" onclick="nav('wc','PE')"><i class="fa fa-gem"></i> Polish Edge <span class="wc-b">PE</span></button>
+    <button class="nl" onclick="nav('wc','BV')"><i class="fa fa-shapes"></i> Beveling <span class="wc-b">BV</span></button>
+    <button class="nl" onclick="nav('wc','HL')"><i class="fa fa-dot-circle"></i> Hole / Drill <span class="wc-b">HL</span></button>
+    <button class="nl" onclick="nav('wc','PR')"><i class="fa fa-print"></i> Printing <span class="wc-b">PR</span></button>
+    <button class="nl" onclick="nav('wc','TG')"><i class="fa fa-fire"></i> Tempering <span class="wc-b">TG</span></button>
+    <button class="nl" onclick="nav('wc','BG')"><i class="fa fa-sync-alt"></i> Bending <span class="wc-b">BG</span></button>
+    <button class="nl" onclick="nav('wc','LG')"><i class="fa fa-layer-group"></i> Lamination <span class="wc-b">LG</span></button>
+    <button class="nl" onclick="nav('wc','FR')"><i class="fa fa-snowflake"></i> Frosting <span class="wc-b">FR</span></button>
+    <button class="nl" onclick="nav('wc','DG')"><i class="fa fa-clone"></i> Double Glazing <span class="wc-b">DG</span></button>
+    <button class="nl" onclick="nav('wc','QC')"><i class="fa fa-check-double"></i> QC Ready <span class="wc-b">QC</span></button>
+    <div id="admin-nav" style="display:none">
+      <div class="nav-section">Admin</div>
+      <button class="nl" onclick="nav('ncr')"><i class="fa fa-exclamation-triangle"></i> NCR Log</button>
+      <button class="nl" onclick="nav('holidays')"><i class="fa fa-calendar-times"></i> Holidays</button>
+      <button class="nl" onclick="nav('users')"><i class="fa fa-users-cog"></i> Users</button>
+      <button class="nl" onclick="nav('import')"><i class="fa fa-file-import"></i> Import Excel</button>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Main ── -->
+<div id="main">
+  <div id="topbar">
+    <div class="tb-left">
+      <h2 id="page-title">Dashboard</h2>
+    </div>
+    <div class="tb-right">
+      <span id="today-lbl"></span>
+      <button id="btn-new-order" class="btn btn-p btn-sm" onclick="openOrderModal()" style="display:none"><i class="fa fa-plus"></i> New Order</button>
+    </div>
+  </div>
+
+  <div id="content">
+
+    <!-- Dashboard -->
+    <div id="page-dashboard" class="page active">
+      <div class="kpi-grid">
+        <div class="kpi blue">
+          <i class="fa fa-layer-group kpi-icon"></i>
+          <div class="lbl">Active Orders</div><div class="val" id="k-total">—</div><div class="sub">in production</div>
+        </div>
+        <div class="kpi green">
+          <i class="fa fa-chart-line kpi-icon"></i>
+          <div class="lbl">OTD Rate</div><div class="val" id="k-otd">—</div><div class="sub" id="k-otd-sub">—</div>
+        </div>
+        <div class="kpi orange">
+          <i class="fa fa-cogs kpi-icon"></i>
+          <div class="lbl">In Progress</div><div class="val" id="k-ip">—</div><div class="sub">being processed</div>
+        </div>
+        <div class="kpi teal">
+          <i class="fa fa-check-circle kpi-icon"></i>
+          <div class="lbl">QC Ready</div><div class="val" id="k-ready">—</div><div class="sub">all WCs complete</div>
+        </div>
+        <div class="kpi red">
+          <i class="fa fa-pause-circle kpi-icon"></i>
+          <div class="lbl">On Hold</div><div class="val" id="k-hold">—</div><div class="sub">awaiting action</div>
+        </div>
+        <div class="kpi purple">
+          <i class="fa fa-truck kpi-icon"></i>
+          <div class="lbl">QC Passed</div><div class="val" id="k-qc">—</div><div class="sub">dispatched</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="ch"><h3><i class="fa fa-tachometer-alt"></i> Capacity Utilisation <span style="font-size:.7rem;font-weight:500;color:var(--subtle);margin-left:8px" id="cap-date"></span></h3></div>
+        <div class="cb" style="padding:20px 24px"><canvas id="cap-chart" height="90"></canvas></div>
+      </div>
+
+      <div class="card">
+        <div class="ch"><h3><i class="fa fa-exclamation-circle"></i> Dept Bottlenecks — Late Orders by Work Center</h3></div>
+        <div class="cb">
+          <div class="dept-late-grid" id="dept-late-grid"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="ch">
+          <h3><i class="fa fa-clock"></i> Late Orders</h3>
+          <button class="btn btn-o btn-sm" onclick="nav('orders')">View All</button>
+        </div>
+        <div class="tbl-wrap"><table><thead><tr><th>Oblique</th><th>Client</th><th>Delivery</th><th>Type</th><th>Qty</th><th>Work Centers</th></tr></thead><tbody id="late-tbody"></tbody></table></div>
+      </div>
+    </div>
+
+    <!-- Orders -->
+    <div id="page-orders" class="page">
+      <div class="sb-bar">
+        <input type="text" class="fc" style="max-width:280px" placeholder="🔍  Search oblique or client…" id="q-s" oninput="loadOrders()">
+        <select class="fc" style="width:140px" id="q-st" onchange="loadOrders()">
+          <option value="">All Statuses</option><option value="Active">Active</option>
+          <option value="On Hold">On Hold</option><option value="Cancelled">Cancelled</option><option value="QC Passed">QC Passed</option>
+        </select>
+      </div>
+      <div class="card">
+        <div class="tbl-wrap"><table><thead><tr><th>#</th><th>Oblique</th><th>Client</th><th>Type</th><th>Delivery</th><th>H × W mm</th><th>Qty</th><th>Work Centers</th><th>Status</th><th id="th-actions" style="display:none">Actions</th></tr></thead><tbody id="orders-tbody"></tbody></table></div>
+      </div>
+    </div>
+
+    <!-- Capacity -->
+    <div id="page-capacity" class="page">
+      <div class="cap-grid" id="cap-detail" style="margin-bottom:18px"></div>
+      <div id="cap-admin-section" style="display:none">
+        <div class="card">
+          <div class="ch"><h3><i class="fa fa-sliders-h"></i> Edit Capacity Limits (sqft / day)</h3></div>
+          <div class="tbl-wrap"><table><thead><tr><th>Code</th><th>Work Center</th><th>Capacity (sqft/day)</th><th></th></tr></thead><tbody id="cap-edit"></tbody></table></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Work Center -->
+    <div id="page-wc" class="page">
+      <div class="card">
+        <div class="ch">
+          <h3 id="wc-title">—</h3>
+          <span style="font-size:.76rem;color:var(--muted);font-weight:500" id="wc-sum"></span>
+        </div>
+        <div class="tbl-wrap">
+          <table><thead><tr id="wc-thead"><th>Oblique</th><th>Client</th><th>Delivery</th><th>OTD</th><th>Qty</th><th>Received</th><th>Done</th><th>Balance</th><th>NCRs</th><th>Completed At</th><th>Save</th><th>NCR</th></tr></thead><tbody id="wc-tbody"></tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- NCR Log -->
+    <div id="page-ncr" class="page">
+      <div class="card">
+        <div class="ch"><h3><i class="fa fa-exclamation-triangle"></i> NCR — Non-Conformance Report Log</h3></div>
+        <div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Oblique</th><th>Client</th><th>Delivery</th><th>Work Center</th><th>Qty</th><th>Type</th><th>Reason</th><th>By</th></tr></thead><tbody id="ncr-tbody"></tbody></table></div>
+      </div>
+    </div>
+
+    <!-- Holidays -->
+    <div id="page-holidays" class="page">
+      <div class="g2">
+        <div class="card">
+          <div class="ch"><h3><i class="fa fa-plus-circle"></i> Add Holiday</h3></div>
+          <div class="cb">
+            <div class="fg"><label>Date</label><input type="date" class="fc" id="hol-d"></div>
+            <div class="fg" style="margin-top:12px"><label>Name</label><input type="text" class="fc" id="hol-n" placeholder="e.g. Eid al-Adha"></div>
+            <button class="btn btn-p" style="margin-top:14px" onclick="addHoliday()"><i class="fa fa-plus"></i> Add Holiday</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="ch"><h3><i class="fa fa-calendar-alt"></i> Holiday Calendar</h3></div>
+          <div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Name</th><th></th></tr></thead><tbody id="hol-tbody"></tbody></table></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Users -->
+    <div id="page-users" class="page">
+      <div class="g2">
+        <div class="card">
+          <div class="ch"><h3><i class="fa fa-user-plus"></i> Add User</h3></div>
+          <div class="cb">
+            <div class="fg"><label>Username</label><input type="text" class="fc" id="nu-name" placeholder="e.g. munis"></div>
+            <div class="fg" style="margin-top:12px"><label>Password</label><input type="password" class="fc" id="nu-pass"></div>
+            <div class="fg" style="margin-top:12px"><label>Role</label>
+              <select class="fc" id="nu-role"><option value="team">Team — limited access</option><option value="admin">Admin — full access</option></select>
+            </div>
+            <button class="btn btn-p" style="margin-top:16px;width:100%" onclick="addUser()"><i class="fa fa-user-plus"></i> Create User</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="ch"><h3><i class="fa fa-users"></i> All Users</h3></div>
+          <div class="tbl-wrap"><table><thead><tr><th>Username</th><th>Role</th><th>Actions</th></tr></thead><tbody id="users-tbody"></tbody></table></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Import -->
+    <div id="page-import" class="page">
+      <div class="card" style="max-width:580px">
+        <div class="ch"><h3><i class="fa fa-file-excel"></i> Import Orders from Excel</h3></div>
+        <div class="cb">
+          <div style="background:var(--green-pale);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:.81rem;color:var(--green-dark);line-height:1.6">
+            Upload your <strong>.xlsm / .xlsx</strong> file. Orders already in the system (same oblique number) are skipped — no duplicates.
+          </div>
+          <div class="fg"><label>Select File</label><input type="file" class="fc" id="imp-file" accept=".xlsx,.xlsm,.xls"></div>
+          <button class="btn btn-s" style="margin-top:16px" onclick="doImport()"><i class="fa fa-upload"></i> Import Now</button>
+          <div id="imp-result" style="margin-top:14px;font-size:.82rem"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── New/Edit Order Modal ── -->
+<div class="mo" id="order-modal">
+  <div class="modal">
+    <div class="mh"><h3 id="om-title">New Order</h3><button class="btn btn-o btn-ic" onclick="closeModal('order-modal')"><i class="fa fa-times"></i></button></div>
+    <div class="mb">
+      <div class="fgrid">
+        <div class="fg"><label>Oblique Number *</label><input class="fc" id="f-order_number" placeholder="e.g. 24300/1"></div>
+        <div class="fg"><label>Client Name *</label><input class="fc" id="f-client_name" placeholder="Client / company name"></div>
+        <div class="fg"><label>Order Type</label>
+          <select class="fc" id="f-order_type"><option>Architectural</option><option>Automotive</option><option>Windscreen</option><option>Appliances</option><option>Furniture</option></select>
+        </div>
+        <div class="fg"><label>Status</label>
+          <select class="fc" id="f-status"><option value="Active">Active</option><option value="On Hold">On Hold</option><option value="Cancelled">Cancelled</option></select>
+        </div>
+        <div class="fg"><label>Order Date</label><input type="date" class="fc" id="f-order_date"></div>
+        <div class="fg"><label>Delivery Date</label><input type="date" class="fc" id="f-delivery_date"></div>
+        <div class="fg"><label>Height (mm)</label><input type="number" class="fc" id="f-height_mm" placeholder="0"></div>
+        <div class="fg"><label>Width (mm)</label><input type="number" class="fc" id="f-width_mm" placeholder="0"></div>
+        <div class="fg"><label>Order Qty (pcs)</label><input type="number" class="fc" id="f-order_qty" placeholder="0"></div>
+      </div>
+      <div class="dv"></div>
+      <div class="fg">
+        <label>Work Centers Required</label>
+        <div class="wc-cbs">
+          <div class="wc-cb" data-wc="ct" onclick="toggleWC(this)">CT — Cutting</div>
+          <div class="wc-cb" data-wc="gr" onclick="toggleWC(this)">GR — Grinding</div>
+          <div class="wc-cb" data-wc="pe" onclick="toggleWC(this)">PE — Polish Edge</div>
+          <div class="wc-cb" data-wc="bv" onclick="toggleWC(this)">BV — Beveling</div>
+          <div class="wc-cb" data-wc="hl" onclick="toggleWC(this)">HL — Hole / Drill</div>
+          <div class="wc-cb" data-wc="pr" onclick="toggleWC(this)">PR — Printing</div>
+          <div class="wc-cb" data-wc="tg" onclick="toggleWC(this)">TG — Tempering</div>
+          <div class="wc-cb" data-wc="bg" onclick="toggleWC(this)">BG — Bending</div>
+          <div class="wc-cb" data-wc="lg" onclick="toggleWC(this)">LG — Lamination</div>
+          <div class="wc-cb" data-wc="fr" onclick="toggleWC(this)">FR — Frosting</div>
+          <div class="wc-cb" data-wc="dg" onclick="toggleWC(this)">DG — Double Glazing</div>
+        </div>
+      </div>
+      <div class="fg" style="margin-top:14px"><label>Notes</label><textarea class="fc" id="f-notes" rows="2" placeholder="Special instructions, dimensions, coatings…"></textarea></div>
+    </div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="closeModal('order-modal')">Cancel</button>
+      <button class="btn btn-p" onclick="saveOrder()"><i class="fa fa-save"></i> Save Order</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── NCR Modal ── -->
+<div class="mo" id="ncr-modal">
+  <div class="modal" style="max-width:500px">
+    <div class="mh"><h3><i class="fa fa-exclamation-triangle" style="color:var(--amber)"></i> &nbsp;Raise NCR</h3><button class="btn btn-o btn-ic" onclick="closeModal('ncr-modal')"><i class="fa fa-times"></i></button></div>
+    <div class="mb">
+      <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:9px;padding:12px 16px;margin-bottom:16px;font-size:.82rem;color:#92400e;font-weight:600">
+        <i class="fa fa-box" style="margin-right:6px"></i><span id="ncr-order-info">—</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div class="fg"><label>Qty Rejected *</label><input type="number" class="fc" id="ncr-qty" min="1" placeholder="0"></div>
+        <div class="fg"><label>Type *</label>
+          <select class="fc" id="ncr-type" onchange="updateNCRTypeInfo()">
+            <option value="Rework">Rework — redo at same WC</option>
+            <option value="Reject">Reject — restart from CT</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin:12px 0;padding:10px 14px;border-radius:8px;font-size:.79rem;font-weight:500;border:1px solid" id="ncr-type-info"></div>
+      <div class="fg"><label>Reason / Description *</label><textarea class="fc" id="ncr-reason" rows="3" placeholder="Describe the defect clearly…"></textarea></div>
+    </div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="closeModal('ncr-modal')">Cancel</button>
+      <button class="btn btn-d" style="background:var(--red);color:#fff;border-color:var(--red)" onclick="submitNCR()"><i class="fa fa-exclamation-triangle"></i> Submit NCR</button>
+    </div>
+  </div>
+</div>
+
+<div id="login-overlay" style="position:fixed;inset:0;background:linear-gradient(135deg,#1e5c3a 0%,#2d7a4f 50%,#1a4a30 100%);display:none;align-items:center;justify-content:center;z-index:9999">
+  <div style="background:#fff;border-radius:16px;padding:34px 32px;width:372px;box-shadow:0 24px 64px rgba(0,0,0,.3)">
+    <div style="text-align:center;margin-bottom:22px">
+      <div style="font-size:1.25rem;font-weight:800;color:#1e5c3a" id="login-title">Sign in</div>
+      <div style="font-size:.78rem;color:#64748b;margin-top:3px" id="login-hint">Pakistan Safety Glass Works</div>
+    </div>
+    <div id="lg-err" style="background:#fee2e2;color:#991b1b;padding:9px 13px;border-radius:7px;font-size:.8rem;margin-bottom:12px;display:none"></div>
+    <div id="login-fields">
+      <div class="fg" style="margin-bottom:12px"><label>Username</label><input class="fc" id="lg-user" placeholder="Username" autocomplete="username"></div>
+      <div class="fg" style="margin-bottom:16px"><label>Password</label><input class="fc" type="password" id="lg-pass" placeholder="Password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
+      <button class="btn btn-p" style="width:100%;justify-content:center;padding:11px" onclick="doLogin()">Sign In</button>
+    </div>
+    <div id="setup-fields" style="display:none">
+      <div class="fg" style="margin-bottom:12px"><label>Admin username</label><input class="fc" id="su-user" placeholder="Choose a username"></div>
+      <div class="fg" style="margin-bottom:16px"><label>Admin password</label><input class="fc" type="password" id="su-pass" placeholder="Choose a password" onkeydown="if(event.key==='Enter')doSetup()"></div>
+      <button class="btn btn-p" style="width:100%;justify-content:center;padding:11px" onclick="doSetup()">Create admin &amp; continue</button>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+/* ============================================================================
+   PSG Production Planning — client-side backend shim
+   Reimplements the Express /api/* routes (from server.js) in the browser,
+   backed by Supabase instead of SQLite. Keeps the original frontend unchanged.
+   ============================================================================ */
+const SB_URL='https://qeyeonucnlsmbeomrrwt.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFleWVvbnVjbmxzbWJlb21ycnd0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQxODk0OTksImV4cCI6MjA5OTc2NTQ5OX0.SmacOxNWOR4HLCOQf_gkHYHFTqBWMDNWrpFAKHP5nns';
+let _sb=null;
+try{ _sb = window.supabase.createClient(SB_URL, SB_KEY); }catch(e){ console.error('Supabase client failed:',e); }
+
+const WC_SEQUENCE=['CT','GR','PE','BV','HL','PR','TG','BG','LG','FR','DG'];
+const WCN={CT:'Cutting',GR:'Grinding',PE:'Polish Edge',BV:'Beveling',HL:'Hole/Drilling',PR:'Printing',
+  TG:'Tempering',BG:'Bending',LG:'Lamination',FR:'Frosting',DG:'Double Glazing',QC:'Quality Control'};
+const DB={users:[],orders:[],wc_progress:[],ncr:[],holidays:[],capacity:[]};
+let SESSION=null; try{ SESSION=JSON.parse(localStorage.getItem('psg_session')||'null'); }catch(e){}
+let _loaded=false,_loadP=null;
+
+async function sha256hex(pw){
+  const b=new TextEncoder().encode('psg_salt_'+pw);
+  const h=await crypto.subtle.digest('SHA-256',b);
+  return [...new Uint8Array(h)].map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+async function loadAll(){
+  const t=['users','orders','wc_progress','ncr','holidays','capacity'];
+  const res=await Promise.all(t.map(x=>_sb.from(x).select('*')));
+  t.forEach((x,i)=>{ if(res[i].error) throw new Error(res[i].error.message||('load '+x+' failed')); DB[x]=res[i].data||[]; });
+  _loaded=true;
+}
+async function ensureLoaded(){ if(_loaded)return; if(!_loadP)_loadP=loadAll(); await _loadP; }
+async function reloadAll(){ _loaded=false; _loadP=null; await ensureLoaded(); }
+
+/* ---- helpers ported from server.js ---- */
+function sqftPerPiece(o){return ((o.height_mm||0)/304.8)*((o.width_mm||0)/304.8);}
+function isLate(d){if(!d)return false;const t=new Date();t.setHours(0,0,0,0);return new Date(d)<t;}
+function getOrderWCs(o){return WC_SEQUENCE.filter(wc=>o[wc.toLowerCase()]);}
+function getNextWC(o,cur){const w=getOrderWCs(o);const i=w.indexOf(cur);return (i<0||i>=w.length-1)?null:w[i+1];}
+function progFor(oid,wc){return DB.wc_progress.find(p=>p.order_id===oid&&p.work_center===wc);}
+function orderById(id){return DB.orders.find(o=>o.id===id);}
+function wcLoad(active,wc){
+  return DB.wc_progress.filter(p=>p.work_center===wc&&p.received_qty>p.done_qty).reduce((s,p)=>{
+    const o=active.find(a=>a.id===p.order_id); if(!o||!o[wc.toLowerCase()])return s;
+    return s+sqftPerPiece(o)*(p.received_qty-p.done_qty);
+  },0);
+}
+async function ins(table,row){const {data,error}=await _sb.from(table).insert(row).select().single(); if(error)throw new Error(error.message); DB[table].push(data); return data;}
+async function upd(table,id,patch){const {error}=await _sb.from(table).update(patch).eq('id',id); if(error)throw new Error(error.message); const r=DB[table].find(x=>x.id===id); if(r)Object.assign(r,patch);}
+async function del(table,id){const {error}=await _sb.from(table).delete().eq('id',id); if(error)throw new Error(error.message); DB[table]=DB[table].filter(x=>x.id!==id);}
+async function initOrderFlow(order){
+  const wcs=getOrderWCs(order); if(!wcs.length)return;
+  const first=wcs[0]; if(progFor(order.id,first))return;
+  await ins('wc_progress',{order_id:order.id,work_center:first,received_qty:order.order_qty,done_qty:0,started_at:new Date().toISOString()});
+}
+
+/* ---- dashboard aggregation (ported) ---- */
+function dashboard(){
+  const orders=DB.orders.filter(o=>o.status!=='Cancelled');
+  let onTime=0,late=0,inProgress=0,ready=0,onHold=0,qcPassed=0;
+  for(const o of orders){
+    if(o.status==='On Hold'){onHold++;continue;}
+    if(o.status==='QC Passed'){qcPassed++;continue;}
+    if(isLate(o.delivery_date))late++;else onTime++;
+    const wcs=getOrderWCs(o); const lastWC=wcs[wcs.length-1];
+    if(!lastWC){inProgress++;continue;}
+    const p=progFor(o.id,lastWC); if(p&&p.done_qty>=o.order_qty)ready++;else inProgress++;
+  }
+  const total=orders.length;
+  const otdPct=(onTime+late)>0?Math.round(onTime/(onTime+late)*1000)/10:100;
+  const active=orders.filter(o=>o.status==='Active');
+  const utilization={};
+  for(const wc of WC_SEQUENCE){ const cap=DB.capacity.find(c=>c.work_center===wc); const load=wcLoad(active,wc);
+    utilization[wc]={name:WCN[wc],load:Math.round(load*10)/10,capacity_sqft:cap?cap.capacity_sqft:0,pct:cap&&cap.capacity_sqft>0?Math.round(load/cap.capacity_sqft*1000)/10:0}; }
+  const deptLate={};
+  for(const o of active.filter(o=>isLate(o.delivery_date))){ for(const wc of getOrderWCs(o)){ const p=progFor(o.id,wc); if(!p||p.done_qty<o.order_qty){deptLate[wc]=(deptLate[wc]||0)+1;break;} } }
+  return {total,onTime,late,inProgress,ready,onHold,qcPassed,otdPct,utilization,deptLate,today:new Date().toISOString().split('T')[0]};
+}
+
+async function importExcel(formData){
+  try{
+    const file=formData.get('file'); if(!file)return{error:'No file'};
+    const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array',cellDates:true});
+    const ws=wb.Sheets['Order Book']||wb.Sheets[wb.SheetNames[0]]; if(!ws)return{error:'No sheet found'};
+    const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,dateNF:'yyyy-mm-dd'});
+    let hr=-1;
+    for(let i=0;i<rows.length;i++){const r=(rows[i]||[]).map(c=>(c||'').toString().toLowerCase()); if(r.some(c=>c.includes('order number')||c.includes('order no')||c==='oblique')){hr=i;break;}}
+    if(hr<0)return{error:'Header row not found'};
+    const headers=rows[hr].map(h=>(h||'').toString().trim().toLowerCase());
+    const g=(row,k)=>{const i=headers.indexOf(k);return i>=0?row[i]:null;};
+    const pb=v=>(v===true||String(v).toLowerCase()==='true'||v==='1'||String(v).toLowerCase()==='yes')?1:0;
+    const pd=v=>{if(!v)return null;if(v instanceof Date)return v.toISOString().split('T')[0];const s=v.toString();return s.includes('T')?s.split('T')[0]:s;};
+    let imported=0,skipped=0;
+    for(const row of rows.slice(hr+1)){
+      const num=(g(row,'order number')||g(row,'order no')||g(row,'oblique')||'').toString().trim();
+      if(!num||num.toLowerCase()==='s.no')continue;
+      if(DB.orders.find(o=>o.order_number===num)){skipped++;continue;}
+      const parent=num.includes('/')?num.split('/')[0]:null;
+      const rec={order_number:num,parent_order:parent,height_mm:parseFloat(g(row,'height'))||0,width_mm:parseFloat(g(row,'width'))||0,
+        order_date:pd(g(row,'order date')),delivery_date:pd(g(row,'delivery date')),order_type:g(row,'order type')||'Architectural',
+        client_name:(g(row,'client name')||'').toString().trim(),order_qty:parseInt(g(row,'order qty')||g(row,'qty')||0)||0,
+        status:(g(row,'status')||'Active').toString().trim()||'Active',notes:''};
+      WC_SEQUENCE.forEach(w=>rec[w.toLowerCase()]=pb(g(row,w.toLowerCase()))); rec.qc=0;
+      try{ const o=await ins('orders',rec); await initOrderFlow(o); imported++; }catch(e){skipped++;}
+    }
+    return {success:true,imported,skipped};
+  }catch(e){return{error:e.message};}
+}
+
+/* ---- API router ---- */
+async function apiHandler(url,opts){
+  const method=(opts.method||'GET').toUpperCase();
+  const [path,qs]=url.split('?');
+  const body = (opts.body && typeof opts.body==='string') ? JSON.parse(opts.body) : null;
+  const query=new URLSearchParams(qs||'');
+  let m;
+
+  if(path==='/api/auth/me'){ if(!SESSION)return {error:'Not authenticated'}; return {id:SESSION.id,username:SESSION.username,role:SESSION.role}; }
+  if(path==='/api/auth/logout'){ SESSION=null; localStorage.removeItem('psg_session'); return {success:true}; }
+  if(path==='/api/auth/needsetup'){ await ensureLoaded(); return {needsetup:DB.users.length===0}; }
+  if(path==='/api/auth/login'&&method==='POST'){
+    await ensureLoaded();
+    const u=DB.users.find(x=>x.username===body.username);
+    const h=await sha256hex(body.password||'');
+    if(!u||u.password_hash!==h) return {error:'Invalid username or password'};
+    SESSION={id:u.id,username:u.username,role:u.role}; localStorage.setItem('psg_session',JSON.stringify(SESSION));
+    return {success:true,role:u.role,username:u.username};
+  }
+  if(path==='/api/auth/setup'&&method==='POST'){
+    await ensureLoaded();
+    if(DB.users.length>0) return {error:'An account already exists — please sign in.'};
+    if(!body.username||!body.password) return {error:'Username and password required'};
+    const h=await sha256hex(body.password);
+    const u=await ins('users',{username:body.username.trim(),password_hash:h,role:'admin'});
+    SESSION={id:u.id,username:u.username,role:u.role}; localStorage.setItem('psg_session',JSON.stringify(SESSION));
+    return {success:true};
+  }
+
+  await ensureLoaded();
+  const isAdmin=SESSION&&SESSION.role==='admin';
+
+  if(path==='/api/dashboard') return dashboard();
+
+  if(path==='/api/users'&&method==='GET') return DB.users.map(u=>({id:u.id,username:u.username,role:u.role,created_at:u.created_at}));
+  if(path==='/api/users'&&method==='POST'){ if(!isAdmin)return{error:'Admin only'}; if(!body.username||!body.password)return{error:'Username and password required'};
+    if(DB.users.find(x=>x.username===body.username))return{error:'Username already exists'};
+    const h=await sha256hex(body.password); const u=await ins('users',{username:body.username,password_hash:h,role:body.role||'team'}); return {id:u.id,username:u.username,role:u.role}; }
+  if((m=path.match(/^\/api\/users\/(\d+)\/password$/))&&method==='PUT'){ if(!isAdmin)return{error:'Admin only'}; const p=(body.password||'').trim(); if(!p)return{error:'Password cannot be empty'}; await upd('users',+m[1],{password_hash:await sha256hex(p)}); return {success:true}; }
+  if((m=path.match(/^\/api\/users\/(\d+)$/))&&method==='DELETE'){ if(!isAdmin)return{error:'Admin only'}; if(+m[1]===SESSION.id)return{error:'Cannot delete yourself'}; await del('users',+m[1]); return {success:true}; }
+
+  if(path==='/api/orders'&&method==='GET'){
+    let rows=DB.orders.slice(); const st=query.get('status'), s=query.get('search');
+    if(st)rows=rows.filter(o=>o.status===st);
+    if(s){const ss=s.toLowerCase();rows=rows.filter(o=>(o.order_number||'').toLowerCase().includes(ss)||(o.client_name||'').toLowerCase().includes(ss));}
+    rows.sort((a,b)=>String(a.delivery_date||'').localeCompare(String(b.delivery_date||''))); return rows;
+  }
+  if(path==='/api/orders'&&method==='POST'){
+    const num=(body.order_number||'').trim(); if(!num)return{error:'Order number required'};
+    if(DB.orders.find(o=>o.order_number===num))return{error:'Order number already exists'};
+    const parent=num.includes('/')?num.split('/')[0]:null;
+    const row={order_number:num,parent_order:parent,height_mm:body.height_mm||0,width_mm:body.width_mm||0,order_date:body.order_date||null,delivery_date:body.delivery_date||null,order_type:body.order_type||'Architectural',client_name:body.client_name||'',order_qty:body.order_qty||0,status:body.status||'Active',notes:body.notes||''};
+    WC_SEQUENCE.forEach(w=>row[w.toLowerCase()]=body[w.toLowerCase()]?1:0); row.qc=0;
+    const o=await ins('orders',row); await initOrderFlow(o); return {id:o.id};
+  }
+  if((m=path.match(/^\/api\/orders\/(\d+)\/progress$/))&&method==='GET') return DB.wc_progress.filter(p=>p.order_id===+m[1]);
+  if((m=path.match(/^\/api\/orders\/(\d+)$/))&&method==='GET'){ const o=orderById(+m[1]); return o||{error:'Not found'}; }
+  if((m=path.match(/^\/api\/orders\/(\d+)$/))&&method==='PUT'){
+    if(!isAdmin)return{error:'Admin only'}; const id=+m[1]; const num=(body.order_number||'').trim(); const parent=num.includes('/')?num.split('/')[0]:null;
+    const patch={order_number:num,parent_order:parent,height_mm:body.height_mm||0,width_mm:body.width_mm||0,order_date:body.order_date||null,delivery_date:body.delivery_date||null,order_type:body.order_type||'Architectural',client_name:body.client_name||'',order_qty:body.order_qty||0,status:body.status||'Active',notes:body.notes||'',updated_at:new Date().toISOString()};
+    WC_SEQUENCE.forEach(w=>patch[w.toLowerCase()]=body[w.toLowerCase()]?1:0); patch.qc=0;
+    await upd('orders',id,patch); return {success:true};
+  }
+  if((m=path.match(/^\/api\/orders\/(\d+)$/))&&method==='DELETE'){
+    if(!isAdmin)return{error:'Admin only'}; const id=+m[1];
+    await _sb.from('wc_progress').delete().eq('order_id',id); DB.wc_progress=DB.wc_progress.filter(p=>p.order_id!==id);
+    await _sb.from('ncr').delete().eq('order_id',id); DB.ncr=DB.ncr.filter(x=>x.order_id!==id);
+    await del('orders',id); return {success:true};
+  }
+
+  if((m=path.match(/^\/api\/workcenter\/([A-Za-z]+)$/))&&method==='GET'){
+    const wc=m[1].toUpperCase(), col=wc.toLowerCase();
+    return DB.orders.filter(o=>o[col]&&o.status!=='Cancelled').map(o=>{
+      const p=progFor(o.id,wc); const ncr_count=DB.ncr.filter(x=>x.order_id===o.id&&x.work_center===wc).length;
+      return {...o,received_qty:p?p.received_qty:0,done_qty:p?p.done_qty:0,completed_at:p?p.completed_at:null,ncr_count,delivery_status:isLate(o.delivery_date)?'Late':'On Time'};
+    }).sort((a,b)=>String(a.delivery_date||'').localeCompare(String(b.delivery_date||'')));
+  }
+  if((m=path.match(/^\/api\/workcenter\/([A-Za-z]+)\/process$/))&&method==='POST'){
+    const wc=m[1].toUpperCase(); const order=orderById(body.order_id); if(!order)return{error:'Order not found'};
+    const p=progFor(body.order_id,wc); const prevDone=p?p.done_qty:0, received=p?p.received_qty:0;
+    if(received===0)return{error:'No qty received at this WC yet'};
+    const newDone=Math.min(Math.max(body.done_qty,0),received); const delta=newDone-prevDone; const isComplete=newDone>=received;
+    await upd('wc_progress',p.id,{done_qty:newDone,completed_at:isComplete?new Date().toISOString():null,updated_by:SESSION?SESSION.username:'system',updated_at:new Date().toISOString()});
+    if(delta>0){ const nextWC=getNextWC(order,wc); if(nextWC){ const np=progFor(body.order_id,nextWC);
+      if(np) await upd('wc_progress',np.id,{received_qty:np.received_qty+delta});
+      else await ins('wc_progress',{order_id:body.order_id,work_center:nextWC,received_qty:delta,done_qty:0,started_at:new Date().toISOString()}); } }
+    return {success:true,completed:isComplete&&!getNextWC(order,wc),delta};
+  }
+
+  if(path==='/api/ncr'&&method==='POST'){
+    const {order_id,work_center,qty_rejected,type,reason}=body; if(!order_id||!work_center||!qty_rejected||!type)return{error:'Missing fields'};
+    const order=orderById(order_id); if(!order)return{error:'Order not found'};
+    await ins('ncr',{order_id,work_center,qty_rejected,type,reason:reason||'',created_by:SESSION?SESSION.username:'system'});
+    if(type==='Rework'){ const p=progFor(order_id,work_center); if(p)await upd('wc_progress',p.id,{received_qty:p.received_qty+qty_rejected,completed_at:null}); }
+    else { const firstWC=getOrderWCs(order)[0]||'CT'; const p=progFor(order_id,firstWC);
+      if(p)await upd('wc_progress',p.id,{received_qty:p.received_qty+qty_rejected,completed_at:null});
+      else await ins('wc_progress',{order_id,work_center:firstWC,received_qty:qty_rejected,done_qty:0,started_at:new Date().toISOString()}); }
+    return {success:true};
+  }
+  if(path==='/api/ncr'&&method==='GET'){
+    return DB.ncr.slice().sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||''))).map(nc=>{ const o=orderById(nc.order_id)||{}; return {...nc,order_number:o.order_number,client_name:o.client_name,delivery_date:o.delivery_date,username:nc.created_by}; });
+  }
+
+  if(path==='/api/capacity'&&method==='GET'){
+    const active=DB.orders.filter(o=>o.status==='Active');
+    return DB.capacity.slice().sort((a,b)=>a.work_center.localeCompare(b.work_center)).map(c=>{ const load=wcLoad(active,c.work_center); return {...c,name:WCN[c.work_center]||c.work_center,load:Math.round(load*10)/10,pct:c.capacity_sqft>0?Math.round(load/c.capacity_sqft*1000)/10:0}; });
+  }
+  if((m=path.match(/^\/api\/capacity\/([A-Za-z]+)$/))&&method==='PUT'){ if(!isAdmin)return{error:'Admin only'}; const c=DB.capacity.find(x=>x.work_center===m[1].toUpperCase()); if(c)await upd('capacity',c.id,{capacity_sqft:body.capacity_sqft||0}); return {success:true}; }
+
+  if(path==='/api/holidays'&&method==='GET') return DB.holidays.slice().sort((a,b)=>String(a.holiday_date).localeCompare(String(b.holiday_date)));
+  if(path==='/api/holidays'&&method==='POST'){ if(!isAdmin)return{error:'Admin only'}; const ex=DB.holidays.find(h=>h.holiday_date===body.holiday_date); if(ex)await upd('holidays',ex.id,{name:body.name}); else await ins('holidays',{holiday_date:body.holiday_date,name:body.name}); return {success:true}; }
+  if((m=path.match(/^\/api\/holidays\/(\d+)$/))&&method==='DELETE'){ if(!isAdmin)return{error:'Admin only'}; await del('holidays',+m[1]); return {success:true}; }
+
+  if(path==='/api/import'&&method==='POST') return importExcel(opts.body);
+
+  return {error:'Unknown endpoint: '+method+' '+path};
+}
+
+/* ---- fetch shim ---- */
+const _origFetch=window.fetch.bind(window);
+window.fetch=function(url,opts){
+  if(typeof url==='string'&&url.startsWith('/api/')){
+    return apiHandler(url,opts||{})
+      .then(data=>new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}}))
+      .catch(e=>new Response(JSON.stringify({error:(e&&e.message)||String(e)}),{status:200,headers:{'Content-Type':'application/json'}}));
+  }
+  return _origFetch(url,opts);
+};
+
+/* ---- login / first-admin overlay ---- */
+function showLogin(){
+  ensureLoaded().then(()=>apiHandler('/api/auth/needsetup',{})).then(r=>{
+    const setup=!!r.needsetup;
+    document.getElementById('setup-fields').style.display=setup?'':'none';
+    document.getElementById('login-fields').style.display=setup?'none':'';
+    document.getElementById('login-title').textContent=setup?'Create admin account':'Sign in';
+    document.getElementById('login-hint').textContent=setup?'First run — set up your admin login.':'Pakistan Safety Glass Works';
+    document.getElementById('lg-err').style.display='none';
+    document.getElementById('login-overlay').style.display='flex';
+  }).catch(e=>{ document.getElementById('lg-err').textContent='Cannot reach database: '+e.message; document.getElementById('lg-err').style.display='block'; document.getElementById('login-overlay').style.display='flex'; });
+}
+async function doLogin(){
+  const u=document.getElementById('lg-user').value.trim(), p=document.getElementById('lg-pass').value;
+  const r=await post('/api/auth/login',{username:u,password:p});
+  const err=document.getElementById('lg-err');
+  if(r.error){err.textContent=r.error;err.style.display='block';return;}
+  document.getElementById('login-overlay').style.display='none'; init();
+}
+async function doSetup(){
+  const u=document.getElementById('su-user').value.trim(), p=document.getElementById('su-pass').value;
+  const err=document.getElementById('lg-err');
+  if(!u||!p){err.textContent='Username and password required';err.style.display='block';return;}
+  const r=await post('/api/auth/setup',{username:u,password:p});
+  if(r.error){err.textContent=r.error;err.style.display='block';return;}
+  document.getElementById('login-overlay').style.display='none'; init();
+}
+
+</script>
+<script>
+const PROD_WCS=['CT','GR','PE','BV','HL','PR','TG','BG','LG','FR','DG'];
+const WN={CT:'Cutting',GR:'Grinding',PE:'Polish Edge',BV:'Beveling',HL:'Hole/Drilling',
+  PR:'Printing',TG:'Tempering',BG:'Bending',LG:'Lamination',FR:'Frosting',DG:'Double Glazing',QC:'QC Ready'};
+let CUR={page:'dashboard',wc:null},USER=null,editId=null,ncrContext=null;
+
+async function init(){
+  const me=await get('/api/auth/me').catch(()=>null);
+  if(!me||me.error){showLogin();return;}
+  USER=me;
+  $('u-name').textContent=me.username;
+  $('u-role').textContent=me.role;
+  $('u-avatar').textContent=me.username[0].toUpperCase();
+  $('btn-new-order').style.display='';
+  if(me.role==='admin'){$('admin-nav').style.display='';$('th-actions').style.display='';}
+  $('today-lbl').textContent=new Date().toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+  nav('dashboard');
+}
+async function logout(){await post('/api/auth/logout',{});showLogin();}
+
+function nav(page,wc){
+  CUR={page,wc:wc||null};
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nl').forEach(l=>l.classList.remove('active'));
+  const titles={dashboard:'Dashboard',orders:'Order Book',capacity:'Capacity Analysis',
+    ncr:'NCR Log',holidays:'Holidays',users:'User Management',import:'Import from Excel',
+    wc:wc?(wc==='QC'?'QC Ready — Awaiting Dispatch':`${WN[wc]} (${wc})`):'Work Center'};
+  $('page-title').textContent=titles[page]||page;
+  $(page==='wc'?'page-wc':`page-${page}`).classList.add('active');
+  const nlMap={dashboard:0,orders:1,capacity:2,CT:3,GR:4,PE:5,BV:6,HL:7,PR:8,TG:9,BG:10,LG:11,FR:12,DG:13,QC:14,ncr:15,holidays:16,users:17,import:18};
+  const nls=document.querySelectorAll('.nl');
+  const idx=page==='wc'?nlMap[wc]:nlMap[page];
+  if(nls[idx]) nls[idx].classList.add('active');
+  if(page==='dashboard') loadDash();
+  if(page==='orders') loadOrders();
+  if(page==='capacity') loadCapacity();
+  if(page==='wc') loadWC(wc);
+  if(page==='ncr') loadNCR();
+  if(page==='holidays') loadHolidays();
+  if(page==='users') loadUsers();
+}
+
+async function loadDash(){
+  const d=await get('/api/dashboard');
+  $('k-total').textContent=d.total;
+  $('k-otd').textContent=d.otdPct+'%';
+  $('k-otd-sub').textContent=`${d.onTime} on time · ${d.late} late`;
+  $('k-ip').textContent=d.inProgress;
+  $('k-ready').textContent=d.ready;
+  $('k-hold').textContent=d.onHold;
+  $('k-qc').textContent=d.qcPassed;
+  $('cap-date').textContent='as of '+fmtDate(d.today);
+  const labels=PROD_WCS.map(wc=>wc);
+  const pcts=PROD_WCS.map(wc=>d.utilization[wc]?.pct||0);
+  const loads=PROD_WCS.map(wc=>d.utilization[wc]?.load||0);
+  const caps=PROD_WCS.map(wc=>d.utilization[wc]?.capacity_sqft||0);
+  const barColors=pcts.map(p=>p>85?'rgba(231,76,60,.85)':p>65?'rgba(230,126,34,.85)':'rgba(45,122,79,.85)');
+  if(window._capChart) window._capChart.destroy();
+  window._capChart=new Chart($('cap-chart'),{
+    type:'bar',
+    data:{
+      labels,
+      datasets:[
+        {label:'Load (sqft/day)',data:loads,backgroundColor:barColors,borderRadius:6,borderSkipped:false},
+        {label:'Capacity (sqft/day)',data:caps,type:'bar',backgroundColor:'rgba(200,228,211,.4)',borderColor:'rgba(45,122,79,.3)',borderWidth:1,borderRadius:6,borderSkipped:false}
+      ]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:true,
+      plugins:{
+        legend:{position:'top',labels:{boxWidth:12,font:{size:11},color:'#6b8f76'}},
+        tooltip:{callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.parsed.y} sqft/day`}}
+      },
+      scales:{
+        x:{grid:{display:false},ticks:{color:'#6b8f76',font:{size:11,weight:'700'}}},
+        y:{grid:{color:'rgba(207,228,214,.4)'},ticks:{color:'#6b8f76',font:{size:10}},beginAtZero:true,title:{display:true,text:'sqft / day',color:'#9dbfaa',font:{size:10}}}
+      }
+    }
+  });
+  const dlGrid=$('dept-late-grid');
+  if(!d.deptLate||!Object.keys(d.deptLate).length){
+    dlGrid.innerHTML='<div style="color:var(--ok);font-size:.83rem;font-weight:600;padding:4px 0"><i class="fa fa-check-circle" style="margin-right:5px"></i>No bottlenecks — all departments are clear</div>';
+  } else {
+    dlGrid.innerHTML=Object.entries(d.deptLate).map(([wc,cnt])=>
+      `<div class="dl-card"><div class="dl-wc">${WN[wc]||wc}</div><div class="dl-cnt">${cnt}</div><div class="dl-lbl">late order(s)</div></div>`
+    ).join('');
+  }
+  const orders=await get('/api/orders');
+  const today=new Date();today.setHours(0,0,0,0);
+  const late=orders.filter(o=>o.delivery_date&&new Date(o.delivery_date)<today&&!['Cancelled','On Hold','QC Passed'].includes(o.status));
+  $('late-tbody').innerHTML=late.length?late.map(o=>`<tr>
+    <td><strong style="color:var(--green-dark)">${o.order_number}</strong></td>
+    <td>${o.client_name}</td>
+    <td><span class="badge r"><i class="fa fa-clock" style="font-size:.6rem"></i> ${fmtDate(o.delivery_date)}</span></td>
+    <td><span class="badge gy">${o.order_type}</span></td>
+    <td style="font-weight:700">${o.order_qty}</td>
+    <td>${wcDots(o)}</td>
+  </tr>`).join(''):'<tr><td class="emp" colspan="6"><i class="fa fa-check-circle" style="color:var(--ok);font-size:1.1rem"></i><br>No late orders — great work!</td></tr>';
+}
+
+function capCard(u,wc){
+  if(!u) return '';
+  const cap=u.capacity_sqft||0,pct=u.pct||0;
+  const color=pct>85?'#e74c3c':pct>65?'#f39c12':pct>0?'#2d7a4f':'#9dbfaa';
+  return `<div class="cap-item">
+    <div class="cap-hdr">
+      <span class="cap-nm">${u.name||WN[wc]||wc}<span class="cap-code">${wc}</span></span>
+      <span class="cap-pct" style="color:${color}">${pct}%</span>
+    </div>
+    <div class="cap-bar"><div class="cap-fill" style="width:${Math.min(pct,100)}%;background:${color}"></div></div>
+    <div class="cap-det">${u.load||0} / ${cap} sqft/day active</div>
+  </div>`;
+}
+
+async function loadOrders(){
+  const s=$('q-s')?.value||'',st=$('q-st')?.value||'';
+  const p=new URLSearchParams();if(s)p.set('search',s);if(st)p.set('status',st);
+  const orders=await get('/api/orders?'+p);
+  const today=new Date();today.setHours(0,0,0,0);
+  const isAdmin=USER?.role==='admin';
+  $('orders-tbody').innerHTML=orders.length?orders.map((o,i)=>{
+    const late=o.delivery_date&&new Date(o.delivery_date)<today&&!['Cancelled','On Hold','QC Passed'].includes(o.status);
+    const sb=o.status==='Active'?(late?'<span class="badge r">Late</span>':'<span class="badge g">On Time</span>')
+      :o.status==='On Hold'?'<span class="badge o">On Hold</span>'
+      :o.status==='QC Passed'?'<span class="badge t">Dispatched</span>'
+      :'<span class="badge gy">Cancelled</span>';
+    return `<tr>
+      <td style="color:var(--subtle);font-size:.75rem">${i+1}</td>
+      <td><strong style="color:var(--green-dark)">${o.order_number}</strong><div style="font-size:.65rem;color:var(--subtle)">${o.parent_order||''}</div></td>
+      <td style="font-weight:500">${o.client_name}</td>
+      <td><span class="badge b">${o.order_type}</span></td>
+      <td>${fmtDate(o.delivery_date)}</td>
+      <td style="font-size:.78rem;color:var(--muted)">${o.height_mm} × ${o.width_mm}</td>
+      <td style="font-weight:700">${o.order_qty}</td>
+      <td>${wcDots(o)}</td>
+      <td>${sb}</td>
+      ${isAdmin?`<td style="white-space:nowrap">
+        <button class="btn btn-o btn-sm btn-ic" onclick="editOrder(${o.id})" title="Edit"><i class="fa fa-edit"></i></button>
+        <button class="btn btn-d btn-sm btn-ic" onclick="delOrder(${o.id},'${o.order_number}')" title="Delete"><i class="fa fa-trash"></i></button>
+      </td>`:USER?.role==='team'?`<td></td>`:''}
+    </tr>`;
+  }).join(''):'<tr><td class="emp" colspan="10">No orders found</td></tr>';
+}
+
+async function loadWC(wc){
+  if(wc==='QC'){return loadQCReady();}
+  const orders=await get(`/api/workcenter/${wc}`);
+  $('wc-title').innerHTML=`<i class="fa fa-industry" style="color:var(--green)"></i> ${WN[wc]} <span style="font-size:.72rem;font-weight:500;color:var(--subtle)">(${wc})</span>`;
+  const totalRec=orders.reduce((s,o)=>s+(o.received_qty||0),0);
+  const totalDone=orders.reduce((s,o)=>s+(o.done_qty||0),0);
+  $('wc-sum').innerHTML=`${orders.length} order(s) &nbsp;·&nbsp; <span style="color:var(--green-dark);font-weight:600">Recv: ${totalRec}</span> &nbsp;·&nbsp; Done: ${totalDone} &nbsp;·&nbsp; <span style="color:${totalRec-totalDone>0?'var(--red)':'var(--ok)'};font-weight:700">Bal: ${totalRec-totalDone}</span>`;
+  $('wc-thead').innerHTML=`<th>Oblique</th><th>Client</th><th>Delivery</th><th>OTD</th><th>Qty</th><th>Received</th><th>Done</th><th>Balance</th><th>NCRs</th><th>Completed At</th><th>Save</th><th>NCR</th>`;
+  $('wc-tbody').innerHTML=orders.length?orders.map(o=>{
+    const rec=o.received_qty||0,done=o.done_qty||0,bal=rec-done;
+    const late=o.delivery_status==='Late';
+    const pct=rec>0?Math.round(done/rec*100):0;
+    return `<tr>
+      <td><strong style="color:var(--green-dark)">${o.order_number}</strong><div style="font-size:.65rem;color:var(--subtle)">${o.client_name}</div></td>
+      <td>${o.client_name}</td>
+      <td>${fmtDate(o.delivery_date)}</td>
+      <td><span class="badge ${late?'r':'g'}">${late?'Late':'On Time'}</span></td>
+      <td style="font-weight:700">${o.order_qty}</td>
+      <td><strong style="color:var(--green-dark)">${rec}</strong></td>
+      <td>
+        <input class="pi" type="number" value="${done}" min="0" max="${rec}" id="done-${o.id}" ${rec===0?'disabled':''}>
+        ${rec>0?`<div style="font-size:.6rem;color:var(--subtle);margin-top:2px;text-align:center">${pct}%</div>`:''}
+      </td>
+      <td><strong style="color:${bal>0?'var(--red)':'var(--ok)'}">${bal}</strong></td>
+      <td>${(o.ncr_count||0)>0?`<span class="badge o"><i class="fa fa-exclamation-triangle"></i> ${o.ncr_count}</span>`:'<span style="color:var(--subtle)">—</span>'}</td>
+      <td style="font-size:.71rem;color:var(--muted)">${o.completed_at?'<span style="color:var(--ok)">✅ '+fmtDateTime(o.completed_at)+'</span>':rec===0?'<span style="color:var(--subtle)">Not received</span>':'<span style="color:var(--warn)">⏳ In progress</span>'}</td>
+      <td><button class="btn btn-s btn-sm btn-ic" onclick="saveProg(${o.id},'${wc}')" ${rec===0?'disabled':''} title="Save progress"><i class="fa fa-save"></i></button></td>
+      <td><button class="btn btn-w btn-sm btn-ic" onclick="openNCR(${o.id},'${o.order_number}','${wc}')" ${rec===0?'disabled':''} title="Raise NCR"><i class="fa fa-exclamation-triangle"></i></button></td>
+    </tr>`;
+  }).join(''):'<tr><td class="emp" colspan="12"><i class="fa fa-check-circle" style="color:var(--ok);font-size:1rem"></i><br>No orders at this work center</td></tr>';
+}
+
+async function loadQCReady(){
+  const orders=await get('/api/orders');
+  const qcReady=[];
+  for(const o of orders){
+    if(['Cancelled','On Hold','QC Passed'].includes(o.status)) continue;
+    const wcs=['ct','gr','pe','bv','hl','pr','tg','bg','lg','fr','dg'].filter(wc=>o[wc]);
+    if(!wcs.length) continue;
+    const prog=await get(`/api/orders/${o.id}/progress`);
+    const allDone=wcs.every(wc=>{const p=prog.find(x=>x.work_center===wc.toUpperCase());return p&&p.done_qty>=o.order_qty;});
+    if(allDone) qcReady.push(o);
+  }
+  $('wc-title').innerHTML=`<i class="fa fa-check-double" style="color:var(--ok)"></i> QC Ready <span style="font-size:.72rem;font-weight:500;color:var(--subtle)">— Awaiting Quality Check & Dispatch</span>`;
+  $('wc-sum').textContent=`${qcReady.length} order(s) with all work centers complete`;
+  $('wc-thead').innerHTML=`<th>Oblique</th><th>Client</th><th>Delivery</th><th>OTD</th><th>Type</th><th>Qty</th><th>Work Centers</th><th>Action</th>`;
+  const today=new Date();today.setHours(0,0,0,0);
+  $('wc-tbody').innerHTML=qcReady.length?qcReady.map(o=>{
+    const late=o.delivery_date&&new Date(o.delivery_date)<today;
+    return `<tr>
+      <td><strong style="color:var(--green-dark)">${o.order_number}</strong></td>
+      <td>${o.client_name}</td>
+      <td>${fmtDate(o.delivery_date)}</td>
+      <td><span class="badge ${late?'r':'g'}">${late?'Late':'On Time'}</span></td>
+      <td><span class="badge b">${o.order_type}</span></td>
+      <td style="font-weight:700">${o.order_qty}</td>
+      <td>${wcDots(o)}</td>
+      <td><button class="btn btn-s btn-sm" onclick="markQCPassed(${o.id},'${o.order_number}')"><i class="fa fa-check"></i> QC Passed / Dispatch</button></td>
+    </tr>`;
+  }).join(''):'<tr><td class="emp" colspan="8"><i class="fa fa-hourglass-half" style="font-size:1rem;color:var(--subtle)"></i><br>No orders are QC Ready yet</td></tr>';
+}
+
+async function markQCPassed(id,num){
+  if(!confirm(`Mark oblique ${num} as QC Passed and Dispatched?`)) return;
+  const o=await get(`/api/orders/${id}`);
+  await fetch(`/api/orders/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...o,status:'QC Passed'})});
+  toast(`${num} — QC Passed & Dispatched ✅`,'ok');loadQCReady();
+}
+
+async function saveProg(oid,wc){
+  const done=parseInt($(`done-${oid}`)?.value)||0;
+  const res=await post(`/api/workcenter/${wc}/process`,{order_id:oid,done_qty:done});
+  if(res.error) return toast(res.error,'err');
+  toast(res.completed?`✅ ${wc} complete — qty forwarded to next dept`:'Progress saved','ok');
+  loadWC(wc);
+}
+
+function openNCR(orderId,orderNum,wc){
+  ncrContext={orderId,orderNum,wc};
+  $('ncr-order-info').textContent=`${orderNum}  ·  ${WN[wc]} (${wc})`;
+  $('ncr-qty').value='';$('ncr-reason').value='';$('ncr-type').value='Rework';
+  updateNCRTypeInfo();$('ncr-modal').classList.add('open');
+}
+function updateNCRTypeInfo(){
+  const t=$('ncr-type').value;
+  const el=$('ncr-type-info');
+  if(t==='Rework'){el.style.background='#fff7ed';el.style.borderColor='#fed7aa';el.style.color='#92400e';el.textContent='🔄 Rework: Defective pieces go back to this same work center for re-processing.';}
+  else{el.style.background='#fee2e2';el.style.borderColor='#fecaca';el.style.color='#991b1b';el.textContent='🔴 Reject: Defective pieces restart from the very beginning — Cutting (CT).';}
+}
+async function submitNCR(){
+  if(!ncrContext) return;
+  const qty=parseInt($('ncr-qty').value)||0,type=$('ncr-type').value,reason=$('ncr-reason').value.trim();
+  if(!qty||qty<1) return toast('Enter qty rejected','err');
+  if(!reason) return toast('Reason is required','err');
+  const res=await post('/api/ncr',{order_id:ncrContext.orderId,work_center:ncrContext.wc,qty_rejected:qty,type,reason});
+  if(res.error) return toast(res.error,'err');
+  toast(`NCR — ${qty} pcs ${type==='Rework'?'sent back to '+ncrContext.wc:'restarting from CT'}`,type==='Rework'?'warn':'err');
+  closeModal('ncr-modal');loadWC(CUR.wc);
+}
+async function loadNCR(){
+  const ncrs=await get('/api/ncr');
+  $('ncr-tbody').innerHTML=ncrs.length?ncrs.map(n=>`<tr>
+    <td style="font-size:.72rem;white-space:nowrap;color:var(--subtle)">${fmtDateTime(n.created_at)}</td>
+    <td><strong style="color:var(--green-dark)">${n.order_number}</strong></td>
+    <td>${n.client_name}</td>
+    <td>${fmtDate(n.delivery_date)}</td>
+    <td><span class="badge b">${WN[n.work_center]||n.work_center}</span></td>
+    <td style="font-weight:700">${n.qty_rejected}</td>
+    <td><span class="badge ${n.type==='Rework'?'o':'r'}">${n.type}</span></td>
+    <td style="max-width:200px;font-size:.76rem;color:var(--muted)">${n.reason||'—'}</td>
+    <td style="font-size:.74rem;color:var(--subtle)">${n.username||n.created_by||'—'}</td>
+  </tr>`).join(''):'<tr><td class="emp" colspan="9">No NCRs recorded</td></tr>';
+}
+
+async function loadCapacity(){
+  const caps=await get('/api/capacity');
+  $('cap-detail').innerHTML=caps.filter(c=>c.work_center!=='QC').map(c=>capCard(c,c.work_center)).join('');
+  const isAdmin=USER?.role==='admin';
+  $('cap-admin-section').style.display=isAdmin?'':'none';
+  if(isAdmin){
+    $('cap-edit').innerHTML=caps.filter(c=>c.work_center!=='QC').map(c=>`<tr>
+      <td><strong style="color:var(--green-dark)">${c.work_center}</strong></td>
+      <td>${c.name||WN[c.work_center]||c.work_center}</td>
+      <td><input type="number" class="fc fc-sm" value="${c.capacity_sqft}" id="cap-${c.work_center}" style="width:110px"></td>
+      <td style="padding:6px"><button class="btn btn-p btn-sm" onclick="saveCap('${c.work_center}')">Save</button></td>
+    </tr>`).join('');
+  }
+}
+async function saveCap(wc){
+  const val=parseFloat($(`cap-${wc}`).value)||0;
+  await fetch(`/api/capacity/${wc}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({capacity_sqft:val})});
+  toast(`${wc} capacity updated`,'ok');loadCapacity();
+}
+
+async function loadHolidays(){
+  const h=await get('/api/holidays');
+  $('hol-tbody').innerHTML=h.length?h.map(hol=>`<tr>
+    <td>${fmtDate(hol.holiday_date)}</td><td style="font-weight:500">${hol.name}</td>
+    <td><button class="btn btn-d btn-sm btn-ic" onclick="delHol(${hol.id})" title="Remove"><i class="fa fa-trash"></i></button></td>
+  </tr>`).join(''):'<tr><td class="emp" colspan="3">No holidays added</td></tr>';
+}
+async function addHoliday(){
+  const d=$('hol-d').value,n=$('hol-n').value.trim();
+  if(!d||!n) return toast('Fill both date and name','err');
+  await post('/api/holidays',{holiday_date:d,name:n});
+  toast('Holiday added','ok');$('hol-d').value='';$('hol-n').value='';loadHolidays();
+}
+async function delHol(id){await fetch(`/api/holidays/${id}`,{method:'DELETE'});toast('Removed','ok');loadHolidays();}
+
+async function loadUsers(){
+  const users=await get('/api/users');
+  $('users-tbody').innerHTML=users.map(u=>`<tr>
+    <td><div style="display:flex;align-items:center;gap:8px"><div style="width:28px;height:28px;background:var(--green-light);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:800;color:var(--green-dark)">${u.username[0].toUpperCase()}</div><strong>${u.username}</strong></div></td>
+    <td><span class="badge ${u.role==='admin'?'r':'b'}">${u.role==='admin'?'Admin':'Team'}</span></td>
+    <td style="white-space:nowrap">
+      <button class="btn btn-o btn-sm" onclick="resetPwd(${u.id},'${u.username}')"><i class="fa fa-key"></i> Reset</button>
+      ${u.id!==USER?.id?`<button class="btn btn-d btn-sm" onclick="delUser(${u.id},'${u.username}')"><i class="fa fa-trash"></i></button>`:''}
+    </td>
+  </tr>`).join('');
+}
+async function addUser(){
+  const n=$('nu-name').value.trim(),p=$('nu-pass').value,r=$('nu-role').value;
+  if(!n||!p) return toast('Name and password required','err');
+  const res=await post('/api/users',{username:n,password:p,role:r});
+  if(res.error) return toast(res.error,'err');
+  toast('User created ✓','ok');$('nu-name').value='';$('nu-pass').value='';loadUsers();
+}
+async function resetPwd(id,name){
+  const pwd=prompt(`New password for ${name}:`);
+  if(!pwd||!pwd.trim()) return;
+  const res=await fetch(`/api/users/${id}/password`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pwd.trim()})}).then(r=>r.json());
+  if(res.error) return toast(res.error,'err');
+  toast(`Password updated for ${name}`,'ok');
+}
+async function delUser(id,name){
+  if(!confirm(`Delete user ${name}?`)) return;
+  const res=await fetch(`/api/users/${id}`,{method:'DELETE'}).then(r=>r.json());
+  if(res.error) return toast(res.error,'err');
+  toast('User deleted','ok');loadUsers();
+}
+
+function openOrderModal(order){
+  editId=order?.id||null;
+  $('om-title').textContent=order?'Edit Order':'New Order';
+  ['order_number','client_name','order_type','status','order_date','delivery_date','height_mm','width_mm','order_qty','notes'].forEach(f=>{
+    const el=$('f-'+f);if(el) el.value=order?(order[f]||''):(f==='order_type'?'Architectural':f==='status'?'Active':'');
+  });
+  document.querySelectorAll('.wc-cb').forEach(el=>{el.classList.toggle('ck',order?!!order[el.dataset.wc]:false);});
+  $('order-modal').classList.add('open');
+}
+function closeModal(id){$(id).classList.remove('open');}
+function toggleWC(el){el.classList.toggle('ck');}
+async function editOrder(id){const d=await get(`/api/orders/${id}`);openOrderModal(d);}
+
+async function saveOrder(){
+  const fv=id=>$('f-'+id)?.value||'';
+  const body={
+    order_number:fv('order_number').trim(),client_name:fv('client_name'),
+    order_type:fv('order_type'),status:fv('status'),
+    order_date:fv('order_date')||null,delivery_date:fv('delivery_date')||null,
+    height_mm:parseFloat(fv('height_mm'))||0,width_mm:parseFloat(fv('width_mm'))||0,
+    order_qty:parseInt(fv('order_qty'))||0,notes:fv('notes')
+  };
+  PROD_WCS.forEach(wc=>body[wc.toLowerCase()]=document.querySelector(`.wc-cb[data-wc="${wc.toLowerCase()}"]`)?.classList.contains('ck')||false);
+  body.qc=0;
+  if(!body.order_number) return toast('Oblique number required','err');
+  if(!body.client_name) return toast('Client name required','err');
+  const res=editId
+    ?await fetch(`/api/orders/${editId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json())
+    :await post('/api/orders',body);
+  if(res.error) return toast(res.error,'err');
+  toast(editId?'Order updated ✓':'Order created ✓','ok');
+  closeModal('order-modal');loadOrders();
+}
+async function delOrder(id,num){
+  if(!confirm(`Delete oblique ${num}? This cannot be undone.`)) return;
+  await fetch(`/api/orders/${id}`,{method:'DELETE'});
+  toast('Order deleted','ok');loadOrders();
+}
+
+async function doImport(){
+  const file=$('imp-file').files[0];
+  if(!file) return toast('Select a file','err');
+  const fd=new FormData();fd.append('file',file);
+  const res=await fetch('/api/import',{method:'POST',body:fd}).then(r=>r.json());
+  const el=$('imp-result');
+  if(res.error){el.innerHTML=`<div style="color:var(--red);font-weight:600">❌ ${res.error}</div>`;return;}
+  el.innerHTML=`<div style="color:var(--green-dark);font-weight:600;background:var(--green-pale);padding:10px 14px;border-radius:8px;border:1px solid var(--border)">✅ Imported: <strong>${res.imported}</strong> new orders &nbsp;·&nbsp; Skipped: ${res.skipped} duplicates</div>`;
+  toast(`Imported ${res.imported} orders`,'ok');
+}
+
+async function get(url){return fetch(url).then(r=>r.json());}
+async function post(url,body){return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());}
+function $(id){return document.getElementById(id);}
+function fmtDate(d){if(!d)return'—';try{return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});}catch(e){return d;}}
+function fmtDateTime(d){if(!d)return'—';try{return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});}catch(e){return d;}}
+function wcDots(o){return`<div class="wc-dots">${PROD_WCS.map(wc=>`<div class="wc-dot ${o[wc.toLowerCase()]?'on':'off'}" title="${WN[wc]}">${wc}</div>`).join('')}</div>`;}
+function toast(msg,type='ok'){const el=document.createElement('div');el.className=`tm ${type}`;el.textContent=msg;$('toast').appendChild(el);setTimeout(()=>el.remove(),3800);}
+
+init();
+</script>
+</body>
+</html>

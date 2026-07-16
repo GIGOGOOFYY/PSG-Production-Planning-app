@@ -1,0 +1,8 @@
+name = "psg-planner"
+compatibility_date = "2025-06-01"
+
+# Serve the single-file app as a static asset. No server code needed —
+# the app talks to Supabase directly from the browser.
+[assets]
+directory = "./public"
+not_found_handling = "single-page-application"
