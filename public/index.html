@@ -199,11 +199,13 @@ tr:hover td{background:var(--green-pale)}
   #sb,#topbar,.no-print{display:none!important}
   #main{margin-left:0!important}
   body{background:#fff!important;color:#000!important}
-  .card,.kpi,.plan-wc-block{box-shadow:none!important;break-inside:avoid}
-  .plan-wc-hdr{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .card,.kpi{box-shadow:none!important;break-inside:avoid}
+  .plan-wc-block{box-shadow:none!important;break-inside:avoid;margin-bottom:14px!important}
+  .plan-wc-hdr{-webkit-print-color-adjust:exact;print-color-adjust:exact;border-radius:6px 6px 0 0!important}
   .plan-util-bar{display:none}
-  #content{padding:10px!important}
-  .print-header{display:block!important}
+  #content{padding:6px 10px!important}
+  .print-header{display:block!important;margin-bottom:10px!important;padding-bottom:8px!important}
+  #plan-content{margin-top:0!important}
   a{text-decoration:none}
 }
 .print-header{display:none;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid #1e5c3a}
@@ -378,7 +380,7 @@ body.dark .ch{background:#111e16}
 
     <!-- Production Plan -->
     <div id="page-plan" class="page">
-      <div class="sb-bar" style="gap:10px;flex-wrap:wrap;margin-bottom:14px">
+      <div class="sb-bar no-print" style="gap:10px;flex-wrap:wrap;margin-bottom:14px">
         <div style="display:flex;align-items:center;gap:8px">
           <label style="font-size:.78rem;font-weight:600;color:var(--muted)">Plan date:</label>
           <input type="date" class="fc" id="plan-date" style="width:150px" onchange="loadPlan()">
@@ -647,26 +649,62 @@ async function initOrderFlow(order){
   await ins('wc_progress',{order_id:order.id,work_center:first,received_qty:order.order_qty,done_qty:0,started_at:new Date().toISOString()});
 }
 
+/* ---- oblique-based counting helpers ---- */
+// Returns the canonical oblique key: parent_order if set, else order_number
+function obliqueKey(o){ return (o.parent_order&&o.parent_order.trim())||o.order_number; }
+// Count distinct obliques in an array of orders
+function countUnique(orders){ return new Set(orders.map(obliqueKey)).size; }
+
 /* ---- dashboard aggregation (ported) ---- */
 function dashboard(){
   const orders=DB.orders.filter(o=>o.status!=='Cancelled');
-  let onTime=0,late=0,inProgress=0,ready=0,onHold=0,qcPassed=0;
+  // group by oblique key so each unique oblique counts as 1
+  const byKey={};
   for(const o of orders){
-    if(o.status==='On Hold'){onHold++;continue;}
-    if(o.status==='QC Passed'){qcPassed++;continue;}
-    if(isLate(o.delivery_date))late++;else onTime++;
-    const wcs=getOrderWCs(o); const lastWC=wcs[wcs.length-1];
-    if(!lastWC){inProgress++;continue;}
-    const p=progFor(o.id,lastWC); if(p&&p.done_qty>=o.order_qty)ready++;else inProgress++;
+    const k=obliqueKey(o);
+    if(!byKey[k]) byKey[k]={rows:[],status:o.status,delivery_date:o.delivery_date};
+    byKey[k].rows.push(o);
+    // if any line is Active, treat whole oblique as Active
+    if(o.status==='Active') byKey[k].status='Active';
+    if(o.status==='On Hold'&&byKey[k].status!=='Active') byKey[k].status='On Hold';
+    if(o.status==='QC Passed'&&byKey[k].status==='QC Passed') byKey[k].status='QC Passed';
+    // take earliest delivery date for OTD calc
+    if(o.delivery_date&&(!byKey[k].delivery_date||o.delivery_date<byKey[k].delivery_date)) byKey[k].delivery_date=o.delivery_date;
   }
-  const total=orders.length;
+  let onTime=0,late=0,inProgress=0,ready=0,onHold=0,qcPassed=0;
+  for(const [,grp] of Object.entries(byKey)){
+    if(grp.status==='On Hold'){onHold++;continue;}
+    if(grp.status==='QC Passed'){qcPassed++;continue;}
+    if(isLate(grp.delivery_date))late++;else onTime++;
+    // inProgress vs ready: check if ALL lines at their last WC are done
+    let allReady=true;
+    for(const o of grp.rows){
+      const wcs=getOrderWCs(o); const lastWC=wcs[wcs.length-1];
+      if(!lastWC){allReady=false;break;}
+      const p=progFor(o.id,lastWC); if(!p||p.done_qty<o.order_qty){allReady=false;break;}
+    }
+    if(allReady)ready++;else inProgress++;
+  }
+  const total=Object.keys(byKey).length;
   const otdPct=(onTime+late)>0?Math.round(onTime/(onTime+late)*1000)/10:100;
   const active=orders.filter(o=>o.status==='Active');
   const utilization={};
   for(const wc of WC_SEQUENCE){ const cap=DB.capacity.find(c=>c.work_center===wc); const load=wcLoad(active,wc);
     utilization[wc]={name:WCN[wc],load:Math.round(load*10)/10,capacity_sqft:cap?cap.capacity_sqft:0,pct:cap&&cap.capacity_sqft>0?Math.round(load/cap.capacity_sqft*1000)/10:0}; }
+  // deptLate: count unique obliques (not lines) that are late per WC
   const deptLate={};
-  for(const o of active.filter(o=>isLate(o.delivery_date))){ for(const wc of getOrderWCs(o)){ const p=progFor(o.id,wc); if(!p||p.done_qty<o.order_qty){deptLate[wc]=(deptLate[wc]||0)+1;break;} } }
+  const lateObliqueWC={};
+  for(const o of active.filter(o=>isLate(o.delivery_date))){
+    const k=obliqueKey(o);
+    for(const wc of getOrderWCs(o)){
+      const p=progFor(o.id,wc);
+      if(!p||p.done_qty<o.order_qty){
+        const key2=k+'|'+wc;
+        if(!lateObliqueWC[key2]){lateObliqueWC[key2]=1;deptLate[wc]=(deptLate[wc]||0)+1;}
+        break;
+      }
+    }
+  }
   return {total,onTime,late,inProgress,ready,onHold,qcPassed,otdPct,utilization,deptLate,today:new Date().toISOString().split('T')[0]};
 }
 
@@ -983,7 +1021,7 @@ async function loadPlan(){
       <div class="plan-wc-hdr">
         <h4><i class="fa fa-industry" style="margin-right:6px;opacity:.8"></i>${WN[wc]} <span style="font-size:.72rem;font-weight:500;opacity:.7">(${wc})</span></h4>
         <div class="plan-wc-meta">
-          <span>📦 ${scheduled.length} orders today</span>
+          <span>📦 ${countUnique(scheduled.map(r=>r.o))} oblique(s) today${scheduled.length!==countUnique(scheduled.map(r=>r.o))?' ('+scheduled.length+' lines)':''}</span>
           <span>📐 ${Math.round(cumSqft).toLocaleString()} / ${capSqft.toLocaleString()} sqft</span>
           <span style="color:${utilColor};font-weight:800">${utilPct}% utilised</span>
           ${overflow.length?`<span style="color:#ffb347;font-weight:700">⚠ ${overflow.length} overflow</span>`:''}
@@ -1010,7 +1048,7 @@ async function loadPlan(){
           <div>${r.isLateOrder?'<span class="badge r">LATE</span>':r.daysLeft===0?'<span class="badge o">Due Today</span>':r.daysLeft===1?'<span class="badge o">Due Tomorrow</span>':'<span class="badge g">On Time</span>'}</div>
         </div>`).join('')}
         ${overflow.length?`
-          <div class="plan-overflow-lbl"><i class="fa fa-arrow-down"></i> Overflow — ${overflow.length} order(s) (${Math.round(overflow.reduce((s,r)=>s+r.sqft,0)).toLocaleString()} sqft) cannot be scheduled today</div>
+          <div class="plan-overflow-lbl"><i class="fa fa-arrow-down"></i> Overflow — ${countUnique(overflow.map(r=>r.o))} oblique(s)${overflow.length!==countUnique(overflow.map(r=>r.o))?' ('+overflow.length+' lines)':''} (${Math.round(overflow.reduce((s,r)=>s+r.sqft,0)).toLocaleString()} sqft) cannot be scheduled today</div>
           ${overflow.map((r,i)=>`<div class="plan-row plan-overflow">
             <div class="plan-pri" style="color:var(--red)">${scheduled.length+i+1}</div>
             <div><strong style="color:var(--muted);font-size:.8rem">${r.o.order_number}</strong></div>
@@ -1023,7 +1061,7 @@ async function loadPlan(){
         `:''}
         <div class="plan-day-cap">
           <i class="fa fa-check-circle" style="color:var(--ok);margin-right:5px"></i>
-          Scheduled: <strong>${Math.round(cumSqft).toLocaleString()} sqft</strong> &nbsp;·&nbsp; ${scheduled.length} order(s) &nbsp;·&nbsp;
+          Scheduled: <strong>${Math.round(cumSqft).toLocaleString()} sqft</strong> &nbsp;·&nbsp; ${countUnique(scheduled.map(r=>r.o))} oblique(s)${scheduled.length!==countUnique(scheduled.map(r=>r.o))?' ('+scheduled.length+' lines)':''} &nbsp;·&nbsp;
           Remaining load: <strong>${Math.round(totalSqft).toLocaleString()} sqft</strong> &nbsp;·&nbsp;
           Utilisation: <strong style="color:${utilColor}">${utilPct}%</strong>
         </div>
@@ -1261,7 +1299,9 @@ async function loadWC(wc){
   $('wc-title').innerHTML=`<i class="fa fa-industry" style="color:var(--green)"></i> ${WN[wc]} <span style="font-size:.72rem;font-weight:500;color:var(--subtle)">(${wc})</span>`;
   const totalRec=orders.reduce((s,o)=>s+(o.received_qty||0),0);
   const totalDone=orders.reduce((s,o)=>s+(o.done_qty||0),0);
-  $('wc-sum').innerHTML=`${orders.length} order(s) &nbsp;·&nbsp; <span style="color:var(--green-dark);font-weight:600">Recv: ${totalRec}</span> &nbsp;·&nbsp; Done: ${totalDone} &nbsp;·&nbsp; <span style="color:${totalRec-totalDone>0?'var(--red)':'var(--ok)'};font-weight:700">Bal: ${totalRec-totalDone}</span>`;
+  const uniqueObl=countUnique(orders);
+  const linesTxt=orders.length!==uniqueObl?` (${orders.length} lines)`:'';
+  $('wc-sum').innerHTML=`${uniqueObl} oblique(s)${linesTxt} &nbsp;·&nbsp; <span style="color:var(--green-dark);font-weight:600">Recv: ${totalRec}</span> &nbsp;·&nbsp; Done: ${totalDone} &nbsp;·&nbsp; <span style="color:${totalRec-totalDone>0?'var(--red)':'var(--ok)'};font-weight:700">Bal: ${totalRec-totalDone}</span>`;
   $('wc-thead').innerHTML=`<th>Oblique</th><th>Client</th><th>Delivery</th><th>OTD</th><th>Qty</th><th>Received</th><th>Done</th><th>Balance</th><th>NCRs</th><th>Completed At</th><th>Save</th><th>NCR</th>`;
   $('wc-tbody').innerHTML=orders.length?orders.map(o=>{
     const rec=o.received_qty||0,done=o.done_qty||0,bal=rec-done;
@@ -1299,7 +1339,9 @@ async function loadQCReady(){
     if(allDone) qcReady.push(o);
   }
   $('wc-title').innerHTML=`<i class="fa fa-check-double" style="color:var(--ok)"></i> QC Ready <span style="font-size:.72rem;font-weight:500;color:var(--subtle)">— Awaiting Quality Check & Dispatch</span>`;
-  $('wc-sum').textContent=`${qcReady.length} order(s) with all work centers complete`;
+  const qcUniq=countUnique(qcReady);
+  const qcLinesTxt=qcReady.length!==qcUniq?` (${qcReady.length} lines)`:'';
+  $('wc-sum').textContent=`${qcUniq} oblique(s)${qcLinesTxt} with all work centers complete`;
   $('wc-thead').innerHTML=`<th>Oblique</th><th>Client</th><th>Delivery</th><th>OTD</th><th>Type</th><th>Qty</th><th>Work Centers</th><th>Action</th>`;
   const today=new Date();today.setHours(0,0,0,0);
   $('wc-tbody').innerHTML=qcReady.length?qcReady.map(o=>{
