@@ -1031,6 +1031,7 @@ async function saveAllProg(){
     if(!res.error){saved++;if(res.completed)completed++;}
   }
   toast('Saved '+saved+' row(s)'+(completed?' · '+completed+' completed ✅':''),'ok');
+  if(btn){btn.disabled=false;btn.innerHTML='<i class="fa fa-save"></i> Save All';}
   await reloadAll();loadWC(wc);
 }
 
