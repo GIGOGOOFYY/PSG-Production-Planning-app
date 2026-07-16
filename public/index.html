@@ -317,15 +317,22 @@ body.dark .ch{background:#111e16}
 
     <!-- Orders -->
     <div id="page-orders" class="page">
-      <div class="sb-bar">
+      <div class="sb-bar" style="flex-wrap:wrap;gap:8px">
         <input type="text" class="fc" style="max-width:280px" placeholder="🔍  Search oblique or client…" id="q-s" oninput="loadOrders()">
         <select class="fc" style="width:140px" id="q-st" onchange="loadOrders()">
           <option value="">All Statuses</option><option value="Active">Active</option>
           <option value="On Hold">On Hold</option><option value="Cancelled">Cancelled</option><option value="QC Passed">QC Passed</option>
         </select>
+        <div id="bulk-bar" style="display:none;align-items:center;gap:8px;margin-left:auto">
+          <span id="sel-count" style="font-size:.78rem;color:var(--muted);font-weight:600"></span>
+          <button class="btn btn-d btn-sm" onclick="deleteSelected()"><i class="fa fa-trash"></i> Delete Selected</button>
+        </div>
       </div>
       <div class="card">
-        <div class="tbl-wrap"><table><thead><tr><th>#</th><th>Oblique</th><th>Client</th><th>Type</th><th>Delivery</th><th>H × W mm</th><th>Qty</th><th>Work Centers</th><th>Status</th><th id="th-actions" style="display:none">Actions</th></tr></thead><tbody id="orders-tbody"></tbody></table></div>
+        <div class="tbl-wrap"><table><thead><tr>
+          <th id="th-chk" style="display:none;width:36px"><input type="checkbox" id="chk-all" onchange="toggleAllOrders(this.checked)" title="Select all"></th>
+          <th>#</th><th>Oblique</th><th>Client</th><th>Type</th><th>Delivery</th><th>H × W mm</th><th>Qty</th><th>Work Centers</th><th>Status</th><th id="th-actions" style="display:none">Actions</th>
+        </tr></thead><tbody id="orders-tbody"></tbody></table></div>
       </div>
     </div>
 
@@ -342,6 +349,10 @@ body.dark .ch{background:#111e16}
 
     <!-- Work Center -->
     <div id="page-wc" class="page">
+      <div class="sb-bar" style="margin-bottom:10px;gap:8px">
+        <input type="text" class="fc" style="max-width:260px" placeholder="🔍  Search oblique or client…" id="wc-search" oninput="filterWC()">
+        <button class="btn btn-s btn-sm" onclick="saveAllProg()" id="btn-save-all" style="margin-left:auto"><i class="fa fa-save"></i> Save All</button>
+      </div>
       <div class="card">
         <div class="ch">
           <h3 id="wc-title">—</h3>
@@ -924,6 +935,9 @@ async function loadOrders(){
   const orders=await get('/api/orders?'+p);
   const today=new Date();today.setHours(0,0,0,0);
   const isAdmin=USER?.role==='admin';
+  // show/hide checkbox column for admins
+  const thChk=$('th-chk');if(thChk) thChk.style.display=isAdmin?'':'none';
+  if($('th-actions')) $('th-actions').style.display=isAdmin?'':'none';
   $('orders-tbody').innerHTML=orders.length?orders.map((o,i)=>{
     const late=o.delivery_date&&new Date(o.delivery_date)<today&&!['Cancelled','On Hold','QC Passed'].includes(o.status);
     const sb=o.status==='Active'?(late?'<span class="badge r">Late</span>':'<span class="badge g">On Time</span>')
@@ -931,6 +945,7 @@ async function loadOrders(){
       :o.status==='QC Passed'?'<span class="badge t">Dispatched</span>'
       :'<span class="badge gy">Cancelled</span>';
     return `<tr>
+      ${isAdmin?`<td style="display:'';width:36px"><input type="checkbox" class="order-chk" value="${o.id}" onchange="updateBulkBar()"></td>`:''}
       <td style="color:var(--subtle);font-size:.75rem">${i+1}</td>
       <td><strong style="color:var(--green-dark)">${o.order_number}</strong><div style="font-size:.65rem;color:var(--subtle)">${o.parent_order||''}</div></td>
       <td style="font-weight:500">${o.client_name}</td>
@@ -945,11 +960,63 @@ async function loadOrders(){
         <button class="btn btn-d btn-sm btn-ic" onclick="delOrder(${o.id},'${o.order_number}')" title="Delete"><i class="fa fa-trash"></i></button>
       </td>`:USER?.role==='team'?`<td></td>`:''}
     </tr>`;
-  }).join(''):'<tr><td class="emp" colspan="10">No orders found</td></tr>';
+  }).join(''):'<tr><td class="emp" colspan="11">No orders found</td></tr>';
+  updateBulkBar();
+}
+
+function toggleAllOrders(checked){
+  document.querySelectorAll('.order-chk').forEach(c=>c.checked=checked);
+  updateBulkBar();
+}
+
+function updateBulkBar(){
+  const chks=[...document.querySelectorAll('.order-chk:checked')];
+  const bar=$('bulk-bar');if(!bar)return;
+  bar.style.display=chks.length?'flex':'none';
+  $('sel-count').textContent=`${chks.length} selected`;
+  const allChk=$('chk-all');
+  if(allChk){const all=document.querySelectorAll('.order-chk');allChk.indeterminate=chks.length>0&&chks.length<all.length;allChk.checked=chks.length===all.length&&all.length>0;}
+}
+
+async function deleteSelected(){
+  const ids=[...document.querySelectorAll('.order-chk:checked')].map(c=>parseInt(c.value));
+  if(!ids.length)return;
+  if(!confirm(`Delete ${ids.length} selected order(s)? This cannot be undone.`))return;
+  let done=0;
+  for(const id of ids){await fetch(`/api/orders/${id}`,{method:'DELETE'});done++;}
+  toast(`Deleted ${done} order(s)`,'ok');
+  if($('chk-all'))$('chk-all').checked=false;
+  await reloadAll();loadOrders();loadDash();
+}
+
+let _wcOrders=[];
+function filterWC(){
+  const q=($('wc-search')?.value||'').toLowerCase();
+  document.querySelectorAll('#wc-tbody tr').forEach(tr=>{
+    const txt=tr.textContent.toLowerCase();
+    tr.style.display=(!q||txt.includes(q))?'':'none';
+  });
+}
+
+async function saveAllProg(){
+  const wc=CUR.wc;if(!wc||wc==='QC')return;
+  const inputs=document.querySelectorAll('[id^="done-"]');
+  if(!inputs.length)return;
+  let saved=0,completed=0;
+  const btn=$('btn-save-all');if(btn){btn.disabled=true;btn.innerHTML='<i class="fa fa-spinner fa-spin"></i> Saving…';}
+  for(const inp of inputs){
+    const oid=parseInt(inp.id.replace('done-',''));
+    const done=parseInt(inp.value)||0;
+    const res=await post(`/api/workcenter/${wc}/process`,{order_id:oid,done_qty:done});
+    if(!res.error){saved++;if(res.completed)completed++;}
+  }
+  toast('Saved '+saved+' row(s)'+(completed?' · '+completed+' completed ✅':''),'ok');
+  await reloadAll();loadWC(wc);
 }
 
 async function loadWC(wc){
   if(wc==='QC'){return loadQCReady();}
+  if($('wc-search'))$('wc-search').value='';
   const orders=await get(`/api/workcenter/${wc}`);
   $('wc-title').innerHTML=`<i class="fa fa-industry" style="color:var(--green)"></i> ${WN[wc]} <span style="font-size:.72rem;font-weight:500;color:var(--subtle)">(${wc})</span>`;
   const totalRec=orders.reduce((s,o)=>s+(o.received_qty||0),0);
