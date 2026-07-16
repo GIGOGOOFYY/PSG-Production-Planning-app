@@ -1,4 +1,4 @@
-name = "psg-planner"
+name = "psg-production-planning-app"
 compatibility_date = "2025-06-01"
 
 # Serve the single-file app as a static asset. No server code needed —
