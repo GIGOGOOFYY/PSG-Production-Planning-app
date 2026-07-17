@@ -988,7 +988,23 @@ ${content}
 
   $('print-title').textContent='Pakistan Safety Glass Works — Production Planning';
   $('print-subtitle').textContent=subtitle;
+  // Force landscape + fit dashboard on one page
+  const ps=document.createElement('style');
+  ps.id='_dash-print-style';
+  ps.textContent=`@page{size:A4 landscape;margin:8mm}
+    @media print{
+      .kpi-grid{grid-template-columns:repeat(6,1fr)!important;gap:8px!important;margin-bottom:10px!important}
+      .kpi{padding:10px 12px!important}.kpi .val{font-size:1.5rem!important}
+      #cap-chart-wrap{max-height:200px!important}.cap-chart-container{height:180px!important}
+      canvas{max-height:180px!important}
+      .dl-grid{grid-template-columns:repeat(auto-fill,minmax(100px,1fr))!important;gap:6px!important}
+      .dl-card{padding:8px!important}.dl-cnt{font-size:1.4rem!important}
+      .card+.card,.mt16{margin-top:8px!important}
+      .ch{padding:8px 14px!important}.cb{padding:8px 14px!important}
+    }`;
+  document.head.appendChild(ps);
   window.print();
+  setTimeout(()=>{const e=document.getElementById('_dash-print-style');if(e)e.remove();},1500);
 }
 
 /* ── Production Plan ── */
