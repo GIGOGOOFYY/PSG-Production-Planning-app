@@ -844,7 +844,9 @@ async function apiHandler(url,opts){
     const p=progFor(body.order_id,wc); const prevDone=p?p.done_qty:0, received=p?p.received_qty:0;
     if(received===0)return{error:'No qty received at this WC yet'};
     const newDone=Math.min(Math.max(body.done_qty,0),received); const delta=newDone-prevDone; const isComplete=newDone>=received;
-    await upd('wc_progress',p.id,{done_qty:newDone,completed_at:isComplete?new Date().toISOString():null,updated_by:SESSION?SESSION.username:'system',updated_at:new Date().toISOString()});
+    // Use provided comp_date if given, otherwise use current time
+    const compTs=isComplete?(body.comp_date?body.comp_date+'T12:00:00.000Z':new Date().toISOString()):null;
+    await upd('wc_progress',p.id,{done_qty:newDone,completed_at:compTs,updated_by:SESSION?SESSION.username:'system',updated_at:new Date().toISOString()});
     if(delta>0){ const nextWC=getNextWC(order,wc); if(nextWC){ const np=progFor(body.order_id,nextWC);
       if(np) await upd('wc_progress',np.id,{received_qty:np.received_qty+delta});
       else await ins('wc_progress',{order_id:body.order_id,work_center:nextWC,received_qty:delta,done_qty:0,started_at:new Date().toISOString()}); } }
@@ -1329,7 +1331,8 @@ async function saveAllProg(){
   // Snapshot inputs NOW before any async work mutates the DOM
   const snapshot=[...document.querySelectorAll('[id^="done-"]')].map(inp=>({
     oid:parseInt(inp.id.replace('done-','')),
-    done:parseInt(inp.value)||0
+    done:parseInt(inp.value)||0,
+    comp_date:document.getElementById('cdate-'+inp.id.replace('done-',''))?.value||null
   }));
   if(!snapshot.length)return;
   const btn=$('btn-save-all');
@@ -1337,8 +1340,8 @@ async function saveAllProg(){
   if(btn){btn.disabled=true;btn.innerHTML='<i class="fa fa-spinner fa-spin"></i> Saving…';}
   let saved=0,completed=0;
   try{
-    for(const {oid,done} of snapshot){
-      const res=await post(`/api/workcenter/${wc}/process`,{order_id:oid,done_qty:done});
+    for(const {oid,done,comp_date} of snapshot){
+      const res=await post(`/api/workcenter/${wc}/process`,{order_id:oid,done_qty:done,comp_date});
       if(!res.error){saved++;if(res.completed)completed++;}
     }
     toast('Saved '+saved+' row(s)'+(completed?' · '+completed+' completed ✅':''),'ok');
@@ -1361,11 +1364,14 @@ async function loadWC(wc){
   const uniqueObl=countUnique(orders);
   const linesTxt=orders.length!==uniqueObl?` (${orders.length} lines)`:'';
   $('wc-sum').innerHTML=`${uniqueObl} order(s)${linesTxt} &nbsp;·&nbsp; <span style="color:var(--green-dark);font-weight:600">Recv: ${totalRec}</span> &nbsp;·&nbsp; Done: ${totalDone} &nbsp;·&nbsp; <span style="color:${totalRec-totalDone>0?'var(--red)':'var(--ok)'};font-weight:700">Bal: ${totalRec-totalDone}</span>`;
-  $('wc-thead').innerHTML=`<th>Oblique</th><th>Client</th><th>Delivery</th><th>OTD</th><th>Qty</th><th>Received</th><th>Done</th><th>Balance</th><th>NCRs</th><th>Completed At</th><th>Save</th><th>NCR</th>`;
+  const todayStr=new Date().toISOString().slice(0,10);
+  $('wc-thead').innerHTML=`<th>Oblique</th><th>Client</th><th>Delivery</th><th>OTD</th><th>Qty</th><th>Received</th><th>Done</th><th>Balance</th><th>NCRs</th><th>Comp. Date</th><th>Status</th><th>Save</th><th>NCR</th>`;
   $('wc-tbody').innerHTML=orders.length?orders.map(o=>{
     const rec=o.received_qty||0,done=o.done_qty||0,bal=rec-done;
     const late=o.delivery_status==='Late';
     const pct=rec>0?Math.round(done/rec*100):0;
+    // Completion date: if already completed use that date, else default to today
+    const existingDate=o.completed_at?o.completed_at.slice(0,10):todayStr;
     return `<tr>
       <td><strong style="color:var(--green-dark)">${o.order_number}</strong><div style="font-size:.65rem;color:var(--subtle)">${o.client_name}</div></td>
       <td>${o.client_name}</td>
@@ -1379,11 +1385,12 @@ async function loadWC(wc){
       </td>
       <td><strong style="color:${bal>0?'var(--red)':'var(--ok)'}">${bal}</strong></td>
       <td>${(o.ncr_count||0)>0?`<span class="badge o"><i class="fa fa-exclamation-triangle"></i> ${o.ncr_count}</span>`:'<span style="color:var(--subtle)">—</span>'}</td>
-      <td style="font-size:.71rem;color:var(--muted)">${o.completed_at?'<span style="color:var(--ok)">✅ '+fmtDateTime(o.completed_at)+'</span>':rec===0?'<span style="color:var(--subtle)">Not received</span>':'<span style="color:var(--warn)">⏳ In progress</span>'}</td>
+      <td><input type="date" class="fc" style="font-size:.72rem;padding:3px 6px;width:130px" id="cdate-${o.id}" value="${existingDate}" ${rec===0?'disabled':''} title="Set the actual completion date"></td>
+      <td style="font-size:.71rem;color:var(--muted)">${o.completed_at?'<span style="color:var(--ok)">✅ Done</span>':rec===0?'<span style="color:var(--subtle)">Not received</span>':'<span style="color:var(--warn)">⏳ In progress</span>'}</td>
       <td><button class="btn btn-s btn-sm btn-ic" onclick="saveProg(${o.id},'${wc}')" ${rec===0?'disabled':''} title="Save progress"><i class="fa fa-save"></i></button></td>
       <td><button class="btn btn-w btn-sm btn-ic" onclick="openNCR(${o.id},'${o.order_number}','${wc}')" ${rec===0?'disabled':''} title="Raise NCR"><i class="fa fa-exclamation-triangle"></i></button></td>
     </tr>`;
-  }).join(''):'<tr><td class="emp" colspan="12"><i class="fa fa-check-circle" style="color:var(--ok);font-size:1rem"></i><br>No orders at this work center</td></tr>';
+  }).join(''):'<tr><td class="emp" colspan="13"><i class="fa fa-check-circle" style="color:var(--ok);font-size:1rem"></i><br>No orders at this work center</td></tr>';
 }
 
 async function loadQCReady(){
@@ -1427,7 +1434,8 @@ async function markQCPassed(id,num){
 
 async function saveProg(oid,wc){
   const done=parseInt($(`done-${oid}`)?.value)||0;
-  const res=await post(`/api/workcenter/${wc}/process`,{order_id:oid,done_qty:done});
+  const comp_date=$(`cdate-${oid}`)?.value||null;
+  const res=await post(`/api/workcenter/${wc}/process`,{order_id:oid,done_qty:done,comp_date});
   if(res.error) return toast(res.error,'err');
   toast(res.completed?`✅ ${wc} complete — qty forwarded to next dept`:'Progress saved','ok');
   loadWC(wc);
