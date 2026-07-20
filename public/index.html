@@ -111,7 +111,10 @@ tr:hover td{background:var(--green-pale)}
 /* ── WC Dots ── */
 .wc-dots{display:flex;gap:3px;flex-wrap:wrap}
 .wc-dot{width:24px;height:18px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.57rem;font-weight:800;letter-spacing:-.3px}
-.wc-dot.on{background:var(--green);color:#fff}.wc-dot.off{background:var(--border-light);color:var(--subtle)}
+.wc-dot.on{background:var(--border-light);color:var(--subtle)}
+.wc-dot.off{background:var(--border-light);color:var(--border-light)}
+.wc-dot.done{background:var(--green);color:#fff}
+.wc-dot.active{background:var(--blue);color:#fff;box-shadow:0 0 0 2px rgba(8,145,178,.35);animation:wc-pulse 1.6s ease-in-out infinite}
 
 /* ── Buttons ── */
 .btn{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:var(--radius-sm);border:1px solid transparent;font-size:.78rem;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap}
@@ -587,7 +590,7 @@ body.dark .ch{background:#111e16}
     <div id="load-msg" style="font-size:.75rem;color:rgba(255,255,255,.7)">Connecting to database…</div>
   </div>
 </div>
-<style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+<style>@keyframes spin{to{transform:rotate(360deg)}}@keyframes wc-pulse{0%,100%{box-shadow:0 0 0 2px rgba(8,145,178,.35)}50%{box-shadow:0 0 0 4px rgba(8,145,178,.15)}}</style>
 
 <div id="login-overlay" style="position:fixed;inset:0;background:linear-gradient(135deg,#1e5c3a 0%,#2d7a4f 50%,#1a4a30 100%);display:none;align-items:center;justify-content:center;z-index:9999">
   <div style="background:#fff;border-radius:16px;padding:34px 32px;width:372px;box-shadow:0 24px 64px rgba(0,0,0,.3)">
@@ -1627,7 +1630,17 @@ async function post(url,body){return fetch(url,{method:'POST',headers:{'Content-
 function $(id){return document.getElementById(id);}
 function fmtDate(d){if(!d)return'—';try{return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});}catch(e){return d;}}
 function fmtDateTime(d){if(!d)return'—';try{return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});}catch(e){return d;}}
-function wcDots(o){return`<div class="wc-dots">${PROD_WCS.map(wc=>`<div class="wc-dot ${o[wc.toLowerCase()]?'on':'off'}" title="${WN[wc]}">${wc}</div>`).join('')}</div>`;}
+function wcDots(o){
+  return`<div class="wc-dots">${PROD_WCS.map(wc=>{
+    if(!o[wc.toLowerCase()]) return`<div class="wc-dot off" title="${WN[wc]} — not required"></div>`;
+    const p=DB.wc_progress.find(x=>x.order_id===o.id&&x.work_center===wc);
+    let cls,tip;
+    if(p&&p.done_qty>=p.received_qty&&p.received_qty>0){cls='done';tip=`${WN[wc]} — ✅ Done (${p.done_qty}/${p.received_qty})`;}
+    else if(p&&p.received_qty>0){cls='active';tip=`${WN[wc]} — 🔵 In progress (${p.done_qty}/${p.received_qty})`;}
+    else{cls='on';tip=`${WN[wc]} — ⏳ Pending`;}
+    return`<div class="wc-dot ${cls}" title="${tip}">${wc}</div>`;
+  }).join('')}</div>`;
+}
 function toast(msg,type='ok'){const el=document.createElement('div');el.className=`tm ${type}`;el.textContent=msg;$('toast').appendChild(el);setTimeout(()=>el.remove(),3800);}
 
 init();
