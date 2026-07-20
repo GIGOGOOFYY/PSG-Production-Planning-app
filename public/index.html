@@ -577,6 +577,18 @@ body.dark .ch{background:#111e16}
   </div>
 </div>
 
+<div id="load-splash" style="position:fixed;inset:0;background:linear-gradient(135deg,#1e5c3a 0%,#2d7a4f 50%,#1a4a30 100%);display:flex;align-items:center;justify-content:center;z-index:10000;flex-direction:column;gap:18px">
+  <div style="text-align:center">
+    <div style="font-size:1.3rem;font-weight:800;color:#fff;letter-spacing:-.5px">Pakistan Safety Glass Works</div>
+    <div style="font-size:.8rem;color:rgba(255,255,255,.6);margin-top:4px">Production Planning</div>
+  </div>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+    <div style="width:36px;height:36px;border:3px solid rgba(255,255,255,.2);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite"></div>
+    <div id="load-msg" style="font-size:.75rem;color:rgba(255,255,255,.7)">Connecting to database…</div>
+  </div>
+</div>
+<style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+
 <div id="login-overlay" style="position:fixed;inset:0;background:linear-gradient(135deg,#1e5c3a 0%,#2d7a4f 50%,#1a4a30 100%);display:none;align-items:center;justify-content:center;z-index:9999">
   <div style="background:#fff;border-radius:16px;padding:34px 32px;width:372px;box-shadow:0 24px 64px rgba(0,0,0,.3)">
     <div style="text-align:center;margin-bottom:22px">
@@ -621,14 +633,18 @@ async function sha256hex(pw){
   const h=await crypto.subtle.digest('SHA-256',b);
   return [...new Uint8Array(h)].map(x=>x.toString(16).padStart(2,'0')).join('');
 }
+function splashMsg(m){const el=document.getElementById('load-msg');if(el)el.textContent=m;}
+function hideSplash(){const el=document.getElementById('load-splash');if(el){el.style.transition='opacity .4s';el.style.opacity='0';setTimeout(()=>el.remove(),450);}}
 async function loadAll(){
+  splashMsg('Connecting to database…');
+  const labels=['users','orders','work centre progress','NCRs','holidays','capacity'];
   const t=['users','orders','wc_progress','ncr','holidays','capacity'];
-  const res=await Promise.all(t.map(x=>_sb.from(x).select('*')));
+  const res=await Promise.all(t.map((x,i)=>{splashMsg(`Loading ${labels[i]}…`);return _sb.from(x).select('*');}));
   t.forEach((x,i)=>{ if(res[i].error) throw new Error(res[i].error.message||('load '+x+' failed')); DB[x]=res[i].data||[]; });
   _loaded=true;
   if(typeof updateSbStatus==='function') updateSbStatus(true);
 }
-async function ensureLoaded(){ if(_loaded)return; if(!_loadP)_loadP=loadAll().catch(e=>{if(typeof updateSbStatus==='function')updateSbStatus(false);throw e;}); await _loadP; }
+async function ensureLoaded(){ if(_loaded)return; if(!_loadP)_loadP=loadAll().catch(e=>{splashMsg('⚠ Failed to connect — please refresh');if(typeof updateSbStatus==='function')updateSbStatus(false);throw e;}); await _loadP; }
 async function reloadAll(){ _loaded=false; _loadP=null; await ensureLoaded(); }
 
 /* ---- helpers ported from server.js ---- */
@@ -814,6 +830,7 @@ async function apiHandler(url,opts){
 
   if((m=path.match(/^\/api\/workcenter\/([A-Za-z]+)$/))&&method==='GET'){
     const wc=m[1].toUpperCase(), col=wc.toLowerCase();
+    const showCompleted=query.get('show_completed')==='1';
     const rows=[];
     for(const o of DB.orders.filter(o=>o[col]&&!['Cancelled','On Hold','QC Passed'].includes(o.status))){
       let p=progFor(o.id,wc);
@@ -833,9 +850,10 @@ async function apiHandler(url,opts){
         }
       }
       if(!p) continue; // not yet at this WC
-      if(p.done_qty>=p.received_qty&&p.received_qty>0) continue; // completed — already moved on
+      const isCompleted=p.done_qty>=p.received_qty&&p.received_qty>0;
+      if(isCompleted&&!showCompleted) continue; // completed — hidden unless Show Completed is toggled
       const ncr_count=DB.ncr.filter(x=>x.order_id===o.id&&x.work_center===wc).length;
-      rows.push({...o,received_qty:p.received_qty,done_qty:p.done_qty,completed_at:p.completed_at||null,ncr_count,delivery_status:isLate(o.delivery_date)?'Late':'On Time'});
+      rows.push({...o,received_qty:p.received_qty,done_qty:p.done_qty,completed_at:p.completed_at||null,ncr_count,delivery_status:isLate(o.delivery_date)?'Late':'On Time',_wc_completed:isCompleted});
     }
     return rows.sort((a,b)=>String(a.delivery_date||'').localeCompare(String(b.delivery_date||'')));
   }
@@ -902,8 +920,9 @@ function showLogin(){
     document.getElementById('login-title').textContent=setup?'Create admin account':'Sign in';
     document.getElementById('login-hint').textContent=setup?'First run — set up your admin login.':'Pakistan Safety Glass Works';
     document.getElementById('lg-err').style.display='none';
+    hideSplash();
     document.getElementById('login-overlay').style.display='flex';
-  }).catch(e=>{ document.getElementById('lg-err').textContent='Cannot reach database: '+e.message; document.getElementById('lg-err').style.display='block'; document.getElementById('login-overlay').style.display='flex'; });
+  }).catch(e=>{ hideSplash(); document.getElementById('lg-err').textContent='Cannot reach database: '+e.message; document.getElementById('lg-err').style.display='block'; document.getElementById('login-overlay').style.display='flex'; });
 }
 async function doLogin(){
   const u=document.getElementById('lg-user').value.trim(), p=document.getElementById('lg-pass').value;
@@ -930,7 +949,7 @@ let CUR={page:'dashboard',wc:null},USER=null,editId=null,ncrContext=null;
 
 async function init(){
   const me=await get('/api/auth/me').catch(()=>null);
-  if(!me||me.error){showLogin();return;}
+  if(!me||me.error){hideSplash();showLogin();return;}
   USER=me;
   $('u-name').textContent=me.username;
   $('u-role').textContent=me.role;
@@ -938,6 +957,7 @@ async function init(){
   $('btn-new-order').style.display='';
   if(me.role==='admin'){$('admin-nav').style.display='';$('th-actions').style.display='';}
   $('today-lbl').textContent=new Date().toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+  hideSplash();
   nav('dashboard');
 }
 async function logout(){await post('/api/auth/logout',{});showLogin();}
@@ -1179,7 +1199,7 @@ function nav(page,wc){
   if(page==='orders') loadOrders();
   if(page==='plan') loadPlan();
   if(page==='capacity') loadCapacity();
-  if(page==='wc') loadWC(wc);
+  if(page==='wc'){_wcShowCompleted=false;loadWC(wc);}
   if(page==='ncr') loadNCR();
   if(page==='holidays') loadHolidays();
   if(page==='users') loadUsers();
@@ -1354,25 +1374,32 @@ async function saveAllProg(){
   }
 }
 
-async function loadWC(wc){
+let _wcShowCompleted=false;
+async function loadWC(wc,showComp){
   if(wc==='QC'){return loadQCReady();}
+  if(showComp!==undefined) _wcShowCompleted=showComp;
   if($('wc-search'))$('wc-search').value='';
-  const orders=await get(`/api/workcenter/${wc}`);
+  const url=_wcShowCompleted?`/api/workcenter/${wc}?show_completed=1`:`/api/workcenter/${wc}`;
+  const orders=await get(url);
   $('wc-title').innerHTML=`<i class="fa fa-industry" style="color:var(--green)"></i> ${WN[wc]} <span style="font-size:.72rem;font-weight:500;color:var(--subtle)">(${wc})</span>`;
-  const totalRec=orders.reduce((s,o)=>s+(o.received_qty||0),0);
-  const totalDone=orders.reduce((s,o)=>s+(o.done_qty||0),0);
-  const uniqueObl=countUnique(orders);
-  const linesTxt=orders.length!==uniqueObl?` (${orders.length} lines)`:'';
-  $('wc-sum').innerHTML=`${uniqueObl} order(s)${linesTxt} &nbsp;·&nbsp; <span style="color:var(--green-dark);font-weight:600">Recv: ${totalRec}</span> &nbsp;·&nbsp; Done: ${totalDone} &nbsp;·&nbsp; <span style="color:${totalRec-totalDone>0?'var(--red)':'var(--ok)'};font-weight:700">Bal: ${totalRec-totalDone}</span>`;
+  const activeOrders=orders.filter(o=>!o._wc_completed);
+  const totalRec=activeOrders.reduce((s,o)=>s+(o.received_qty||0),0);
+  const totalDone=activeOrders.reduce((s,o)=>s+(o.done_qty||0),0);
+  const uniqueObl=countUnique(activeOrders);
+  const linesTxt=activeOrders.length!==uniqueObl?` (${activeOrders.length} lines)`:'';
+  const completedCount=orders.filter(o=>o._wc_completed).length;
+  const compToggleHtml=`<button onclick="loadWC('${wc}',${!_wcShowCompleted})" style="margin-left:16px;background:${_wcShowCompleted?'var(--green)':'transparent'};color:${_wcShowCompleted?'#fff':'var(--muted)'};border:1px solid ${_wcShowCompleted?'var(--green)':'var(--border)'};border-radius:6px;padding:3px 10px;font-size:.7rem;cursor:pointer;font-weight:600;transition:all .15s"><i class="fa fa-check-double"></i> ${_wcShowCompleted?'Hide':'Show'} Completed${completedCount&&!_wcShowCompleted?' ('+completedCount+')':''}</button>`;
+  $('wc-sum').innerHTML=`${uniqueObl} order(s)${linesTxt} &nbsp;·&nbsp; <span style="color:var(--green-dark);font-weight:600">Recv: ${totalRec}</span> &nbsp;·&nbsp; Done: ${totalDone} &nbsp;·&nbsp; <span style="color:${totalRec-totalDone>0?'var(--red)':'var(--ok)'};font-weight:700">Bal: ${totalRec-totalDone}</span>${compToggleHtml}`;
   const todayStr=new Date().toISOString().slice(0,10);
   $('wc-thead').innerHTML=`<th>Oblique</th><th>Client</th><th>Delivery</th><th>OTD</th><th>Qty</th><th>Received</th><th>Done</th><th>Balance</th><th>NCRs</th><th>Comp. Date</th><th>Status</th><th>Save</th><th>NCR</th>`;
   $('wc-tbody').innerHTML=orders.length?orders.map(o=>{
     const rec=o.received_qty||0,done=o.done_qty||0,bal=rec-done;
     const late=o.delivery_status==='Late';
     const pct=rec>0?Math.round(done/rec*100):0;
+    const isComp=!!o._wc_completed;
     // Completion date: if already completed use that date, else default to today
     const existingDate=o.completed_at?o.completed_at.slice(0,10):todayStr;
-    return `<tr>
+    return `<tr style="${isComp?'background:#f6fdf8;opacity:.85':''}">
       <td><strong style="color:var(--green-dark)">${o.order_number}</strong><div style="font-size:.65rem;color:var(--subtle)">${o.client_name}</div></td>
       <td>${o.client_name}</td>
       <td>${fmtDate(o.delivery_date)}</td>
@@ -1386,8 +1413,8 @@ async function loadWC(wc){
       <td><strong style="color:${bal>0?'var(--red)':'var(--ok)'}">${bal}</strong></td>
       <td>${(o.ncr_count||0)>0?`<span class="badge o"><i class="fa fa-exclamation-triangle"></i> ${o.ncr_count}</span>`:'<span style="color:var(--subtle)">—</span>'}</td>
       <td><input type="date" class="fc" style="font-size:.72rem;padding:3px 6px;width:130px" id="cdate-${o.id}" value="${existingDate}" ${rec===0?'disabled':''} title="Set the actual completion date"></td>
-      <td style="font-size:.71rem;color:var(--muted)">${o.completed_at?'<span style="color:var(--ok)">✅ Done</span>':rec===0?'<span style="color:var(--subtle)">Not received</span>':'<span style="color:var(--warn)">⏳ In progress</span>'}</td>
-      <td><button class="btn btn-s btn-sm btn-ic" onclick="saveProg(${o.id},'${wc}')" ${rec===0?'disabled':''} title="Save progress"><i class="fa fa-save"></i></button></td>
+      <td style="font-size:.71rem;color:var(--muted)">${isComp?'<span style="color:var(--ok)">✅ Done</span>':rec===0?'<span style="color:var(--subtle)">Not received</span>':'<span style="color:var(--warn)">⏳ In progress</span>'}</td>
+      <td><button class="btn btn-s btn-sm btn-ic" onclick="saveProg(${o.id},'${wc}')" ${rec===0?'disabled':''} title="${isComp?'Update completion date':'Save progress'}"><i class="fa fa-save"></i></button></td>
       <td><button class="btn btn-w btn-sm btn-ic" onclick="openNCR(${o.id},'${o.order_number}','${wc}')" ${rec===0?'disabled':''} title="Raise NCR"><i class="fa fa-exclamation-triangle"></i></button></td>
     </tr>`;
   }).join(''):'<tr><td class="emp" colspan="13"><i class="fa fa-check-circle" style="color:var(--ok);font-size:1rem"></i><br>No orders at this work center</td></tr>';
