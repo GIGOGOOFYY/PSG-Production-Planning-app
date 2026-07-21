@@ -640,10 +640,37 @@ function splashMsg(m){const el=document.getElementById('load-msg');if(el)el.text
 function hideSplash(){const el=document.getElementById('load-splash');if(el){el.style.transition='opacity .4s';el.style.opacity='0';setTimeout(()=>el.remove(),450);}}
 async function loadAll(){
   splashMsg('Connecting to database…');
-  const labels=['users','orders','work centre progress','NCRs','holidays','capacity'];
-  const t=['users','orders','wc_progress','ncr','holidays','capacity'];
-  const res=await Promise.all(t.map((x,i)=>{splashMsg(`Loading ${labels[i]}…`);return _sb.from(x).select('*');}));
-  t.forEach((x,i)=>{ if(res[i].error) throw new Error(res[i].error.message||('load '+x+' failed')); DB[x]=res[i].data||[]; });
+  // Load orders + supporting tables in parallel first
+  const [usersRes,ordersRes,ncrRes,holRes,capRes]=await Promise.all([
+    _sb.from('users').select('*'),
+    _sb.from('orders').select('*'),
+    _sb.from('ncr').select('*'),
+    _sb.from('holidays').select('*'),
+    _sb.from('capacity').select('*'),
+  ]);
+  if(usersRes.error) throw new Error(usersRes.error.message||'load users failed');
+  if(ordersRes.error) throw new Error(ordersRes.error.message||'load orders failed');
+  if(ncrRes.error) throw new Error(ncrRes.error.message||'load ncr failed');
+  if(holRes.error) throw new Error(holRes.error.message||'load holidays failed');
+  if(capRes.error) throw new Error(capRes.error.message||'load capacity failed');
+  DB.users=usersRes.data||[];
+  DB.orders=ordersRes.data||[];
+  DB.ncr=ncrRes.data||[];
+  DB.holidays=holRes.data||[];
+  DB.capacity=capRes.data||[];
+
+  // Load wc_progress only for non-cancelled orders (much smaller payload)
+  splashMsg('Loading work centre progress…');
+  const activeIds=DB.orders.filter(o=>o.status!=='Cancelled').map(o=>o.id);
+  if(activeIds.length){
+    const wcRes=await _sb.from('wc_progress').select('*').in('order_id',activeIds);
+    if(wcRes.error) throw new Error(wcRes.error.message||'load wc_progress failed');
+    DB.wc_progress=wcRes.data||[];
+  } else {
+    DB.wc_progress=[];
+  }
+
+  splashMsg('Ready!');
   _loaded=true;
   if(typeof updateSbStatus==='function') updateSbStatus(true);
 }
