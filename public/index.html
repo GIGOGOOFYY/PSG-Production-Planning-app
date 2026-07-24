@@ -638,37 +638,57 @@ async function sha256hex(pw){
 }
 function splashMsg(m){const el=document.getElementById('load-msg');if(el)el.textContent=m;}
 function hideSplash(){const el=document.getElementById('load-splash');if(el){el.style.transition='opacity .4s';el.style.opacity='0';setTimeout(()=>el.remove(),450);}}
+// Fetch ALL rows from a table, paginating past Supabase's 1000-row per-request cap
+async function fetchAllRows(table){
+  const PAGE=1000; let from=0; let all=[];
+  while(true){
+    const {data,error}=await _sb.from(table).select('*').range(from,from+PAGE-1);
+    if(error) throw new Error(error.message||('load '+table+' failed'));
+    const batch=data||[];
+    all=all.concat(batch);
+    if(batch.length<PAGE) break; // last page reached
+    from+=PAGE;
+  }
+  return all;
+}
 async function loadAll(){
   splashMsg('Connecting to database…');
-  // Load orders + supporting tables in parallel first
-  const [usersRes,ordersRes,ncrRes,holRes,capRes]=await Promise.all([
+  // Load small supporting tables in parallel (each well under 1000 rows)
+  const [usersRes,ncrRes,holRes,capRes]=await Promise.all([
     _sb.from('users').select('*'),
-    _sb.from('orders').select('*'),
     _sb.from('ncr').select('*'),
     _sb.from('holidays').select('*'),
     _sb.from('capacity').select('*'),
   ]);
   if(usersRes.error) throw new Error(usersRes.error.message||'load users failed');
-  if(ordersRes.error) throw new Error(ordersRes.error.message||'load orders failed');
   if(ncrRes.error) throw new Error(ncrRes.error.message||'load ncr failed');
   if(holRes.error) throw new Error(holRes.error.message||'load holidays failed');
   if(capRes.error) throw new Error(capRes.error.message||'load capacity failed');
   DB.users=usersRes.data||[];
-  DB.orders=ordersRes.data||[];
   DB.ncr=ncrRes.data||[];
   DB.holidays=holRes.data||[];
   DB.capacity=capRes.data||[];
 
-  // Load wc_progress only for non-cancelled orders (much smaller payload)
+  // Load orders + wc_progress with pagination so ALL rows load (not just first 1000)
+  splashMsg('Loading orders…');
+  DB.orders=await fetchAllRows('orders');
   splashMsg('Loading work centre progress…');
-  const activeIds=DB.orders.filter(o=>o.status!=='Cancelled').map(o=>o.id);
-  if(activeIds.length){
-    const wcRes=await _sb.from('wc_progress').select('*').in('order_id',activeIds);
-    if(wcRes.error) throw new Error(wcRes.error.message||'load wc_progress failed');
-    DB.wc_progress=wcRes.data||[];
-  } else {
-    DB.wc_progress=[];
+  let wcRows=await fetchAllRows('wc_progress');
+  // De-duplicate: keep one row per (order_id, work_center), preferring the most-progressed one.
+  // (Truncated loads in the past may have caused duplicate rows to be inserted.)
+  const wcMap={};
+  for(const p of wcRows){
+    const k=p.order_id+'|'+p.work_center;
+    const ex=wcMap[k];
+    if(!ex){ wcMap[k]=p; continue; }
+    // Prefer higher done_qty, then higher received_qty, then higher id
+    if((p.done_qty||0)>(ex.done_qty||0) ||
+       ((p.done_qty||0)===(ex.done_qty||0)&&(p.received_qty||0)>(ex.received_qty||0)) ||
+       ((p.done_qty||0)===(ex.done_qty||0)&&(p.received_qty||0)===(ex.received_qty||0)&&(p.id||0)>(ex.id||0))){
+      wcMap[k]=p;
+    }
   }
+  DB.wc_progress=Object.values(wcMap);
 
   splashMsg('Ready!');
   _loaded=true;
