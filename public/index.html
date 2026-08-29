@@ -262,6 +262,7 @@ body.dark .ch{background:#111e16}
     <button class="nl" onclick="nav('orders')"><i class="fa fa-list-alt"></i> Order Book</button>
     <button class="nl" onclick="nav('plan')"><i class="fa fa-calendar-alt"></i> Production Plan</button>
     <button class="nl" onclick="nav('capacity')"><i class="fa fa-tachometer-alt"></i> Capacity</button>
+    <button class="nl" onclick="nav('oee')"><i class="fa fa-bolt"></i> OEE</button>
     <div class="nav-section">Work Centers</div>
     <button class="nl" onclick="nav('wc','CT')"><i class="fa fa-cut"></i> Cutting <span class="wc-b">CT</span></button>
     <button class="nl" onclick="nav('wc','GR')"><i class="fa fa-circle-notch"></i> Grinding <span class="wc-b">GR</span></button>
@@ -349,6 +350,13 @@ body.dark .ch{background:#111e16}
       </div>
 
       <div class="card">
+        <div class="ch"><h3><i class="fa fa-bolt"></i> OEE Snapshot <span style="font-size:.7rem;font-weight:500;color:var(--subtle);margin-left:8px" id="oee-snap-date"></span></h3>
+          <button class="btn btn-o btn-sm" onclick="nav('oee')">View OEE</button>
+        </div>
+        <div class="cb"><div id="oee-snapshot"></div></div>
+      </div>
+
+      <div class="card">
         <div class="ch"><h3><i class="fa fa-exclamation-circle"></i> Dept Bottlenecks — Late Orders by Work Center</h3></div>
         <div class="cb">
           <div class="dept-late-grid" id="dept-late-grid"></div>
@@ -421,6 +429,43 @@ body.dark .ch{background:#111e16}
         <div class="card">
           <div class="ch"><h3><i class="fa fa-sliders-h"></i> Edit Capacity Limits (sqft / day)</h3></div>
           <div class="tbl-wrap"><table><thead><tr><th>Code</th><th>Work Center</th><th>Capacity (sqft/day)</th><th></th></tr></thead><tbody id="cap-edit"></tbody></table></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OEE -->
+    <div id="page-oee" class="page">
+      <div class="sb-bar" style="gap:8px;flex-wrap:wrap;margin-bottom:14px">
+        <div id="oee-wc-tabs" class="wc-cbs" style="margin-top:0"></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
+          <label style="font-size:.78rem;font-weight:600;color:var(--muted)">Date:</label>
+          <input type="date" class="fc" id="oee-date" style="width:150px" onchange="loadOEE()">
+          <button class="btn btn-w btn-sm" onclick="openDowntimeModal()"><i class="fa fa-hourglass-half"></i> Log Downtime</button>
+        </div>
+      </div>
+
+      <div class="kpi-grid" id="oee-kpis" style="margin-bottom:18px"></div>
+
+      <div class="card">
+        <div class="ch"><h3><i class="fa fa-chart-line"></i> OEE Trend — <span id="oee-trend-wc-lbl"></span></h3>
+          <select class="fc fc-sm" id="oee-trend-range" style="width:150px" onchange="loadOEETrend()">
+            <option value="30">Last 30 Days</option>
+            <option value="90">Last 90 Days</option>
+            <option value="365">Last 12 Months</option>
+          </select>
+        </div>
+        <div class="cb"><canvas id="oee-trend-chart" height="80"></canvas></div>
+      </div>
+
+      <div class="card">
+        <div class="ch"><h3><i class="fa fa-hourglass-half"></i> Downtime Log — <span id="oee-dt-wc-lbl"></span></h3></div>
+        <div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Type</th><th>Reason</th><th>Start</th><th>End</th><th>Minutes</th><th>By</th><th></th></tr></thead><tbody id="oee-downtime-tbody"></tbody></table></div>
+      </div>
+
+      <div id="oee-settings-section" style="display:none">
+        <div class="card">
+          <div class="ch"><h3><i class="fa fa-sliders-h"></i> OEE Settings — Shift, Breaks &amp; Ideal Run Rate</h3></div>
+          <div class="tbl-wrap"><table><thead><tr><th>WC</th><th>Shift (hrs)</th><th>Short Breaks</th><th>Min Each</th><th>Meal Breaks</th><th>Min Each</th><th>Ideal Rate (sqft/min)</th><th></th></tr></thead><tbody id="oee-settings-tbody"></tbody></table></div>
         </div>
       </div>
     </div>
@@ -580,6 +625,38 @@ body.dark .ch{background:#111e16}
   </div>
 </div>
 
+<!-- ── Downtime Modal ── -->
+<div class="mo" id="downtime-modal">
+  <div class="modal" style="max-width:520px">
+    <div class="mh"><h3><i class="fa fa-hourglass-half" style="color:var(--amber)"></i> &nbsp;Log Downtime</h3><button class="btn btn-o btn-ic" onclick="closeModal('downtime-modal')"><i class="fa fa-times"></i></button></div>
+    <div class="mb">
+      <div class="fgrid">
+        <div class="fg"><label>Work Center</label><select class="fc" id="dt-wc"></select></div>
+        <div class="fg"><label>Date</label><input type="date" class="fc" id="dt-date"></div>
+        <div class="fg"><label>Type *</label>
+          <select class="fc" id="dt-type">
+            <option value="Unplanned">Unplanned — counts against Availability</option>
+            <option value="Planned">Planned — excluded from OEE (changeover, meal, etc.)</option>
+          </select>
+        </div>
+        <div class="fg"><label>Reason</label>
+          <select class="fc" id="dt-reason">
+            <option>Machine Breakdown</option><option>Material Shortage</option><option>Power Outage</option>
+            <option>Changeover / Setup</option><option>Maintenance</option><option>Waiting on Previous WC</option>
+            <option>Process</option><option>Other</option>
+          </select>
+        </div>
+        <div class="fg"><label>Start Time *</label><input type="time" class="fc" id="dt-start"></div>
+        <div class="fg"><label>End Time *</label><input type="time" class="fc" id="dt-end"></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="closeModal('downtime-modal')">Cancel</button>
+      <button class="btn btn-w" style="background:var(--amber);color:#fff;border-color:var(--amber)" onclick="submitDowntime()"><i class="fa fa-save"></i> Log Downtime</button>
+    </div>
+  </div>
+</div>
+
 <div id="load-splash" style="position:fixed;inset:0;background:linear-gradient(135deg,#1e5c3a 0%,#2d7a4f 50%,#1a4a30 100%);display:flex;align-items:center;justify-content:center;z-index:10000;flex-direction:column;gap:18px">
   <div style="text-align:center">
     <div style="font-size:1.3rem;font-weight:800;color:#fff;letter-spacing:-.5px">Pakistan Safety Glass Works</div>
@@ -627,7 +704,7 @@ try{ _sb = window.supabase.createClient(SB_URL, SB_KEY); }catch(e){ console.erro
 const WC_SEQUENCE=['CT','GR','PE','BV','HL','PR','TG','BG','LG','FR','DG'];
 const WCN={CT:'Cutting',GR:'Grinding',PE:'Polish Edge',BV:'Beveling',HL:'Hole/Drilling',PR:'Printing',
   TG:'Tempering',BG:'Bending',LG:'Lamination',FR:'Frosting',DG:'Double Glazing',QC:'Quality Control'};
-const DB={users:[],orders:[],wc_progress:[],ncr:[],holidays:[],capacity:[]};
+const DB={users:[],orders:[],wc_progress:[],ncr:[],holidays:[],capacity:[],oee_settings:[],wc_daily_log:[],downtime:[]};
 let SESSION=null; try{ SESSION=JSON.parse(localStorage.getItem('psg_session')||'null'); }catch(e){}
 let _loaded=false,_loadP=null;
 
@@ -654,24 +731,26 @@ async function fetchAllRows(table){
 async function loadAll(){
   splashMsg('Connecting to database…');
   // Load small supporting tables in parallel (each well under 1000 rows)
-  const [usersRes,ncrRes,holRes,capRes]=await Promise.all([
+  const [usersRes,holRes,capRes,oeeSetRes]=await Promise.all([
     _sb.from('users').select('*'),
-    _sb.from('ncr').select('*'),
     _sb.from('holidays').select('*'),
     _sb.from('capacity').select('*'),
+    _sb.from('oee_settings').select('*'),
   ]);
   if(usersRes.error) throw new Error(usersRes.error.message||'load users failed');
-  if(ncrRes.error) throw new Error(ncrRes.error.message||'load ncr failed');
   if(holRes.error) throw new Error(holRes.error.message||'load holidays failed');
   if(capRes.error) throw new Error(capRes.error.message||'load capacity failed');
+  if(oeeSetRes.error) throw new Error(oeeSetRes.error.message||'load oee_settings failed');
   DB.users=usersRes.data||[];
-  DB.ncr=ncrRes.data||[];
   DB.holidays=holRes.data||[];
   DB.capacity=capRes.data||[];
+  DB.oee_settings=oeeSetRes.data||[];
 
-  // Load orders + wc_progress with pagination so ALL rows load (not just first 1000)
+  // Load orders + wc_progress + ncr with pagination so ALL rows load (not just first 1000)
   splashMsg('Loading orders…');
   DB.orders=await fetchAllRows('orders');
+  splashMsg('Loading NCR log…');
+  DB.ncr=await fetchAllRows('ncr');
   splashMsg('Loading work centre progress…');
   let wcRows=await fetchAllRows('wc_progress');
   // De-duplicate: keep one row per (order_id, work_center), preferring the most-progressed one.
@@ -689,6 +768,10 @@ async function loadAll(){
     }
   }
   DB.wc_progress=Object.values(wcMap);
+
+  splashMsg('Loading OEE logs…');
+  DB.wc_daily_log=await fetchAllRows('wc_daily_log');
+  DB.downtime=await fetchAllRows('downtime');
 
   splashMsg('Ready!');
   _loaded=true;
@@ -710,6 +793,47 @@ function wcLoad(active,wc){
     return s+sqftPerPiece(o)*(p.received_qty-p.done_qty);
   },0);
 }
+/* ---- OEE helpers ----
+   Mirrors the Availability × Performance × Quality model used in the department
+   "Daily Production Report" .xlsm files (Ideal Run Rate, Shift/Breaks, Downtime log).
+   Note: the source spreadsheets are inconsistent about whether Performance divides by
+   Planned Production Time or Operating Time — Cutting/Grinding use Planned, Tempering/
+   Bending/Lamination use Operating (the textbook formula). We standardize on Operating
+   Time here so OEE is comparable across all work centers. */
+const OEE_DEFAULT_SETTINGS={shift_hours:9,short_breaks_count:2,short_break_minutes:15,meal_breaks_count:1,meal_break_minutes:60,ideal_run_rate:0};
+function oeeSettingsFor(wc){ return DB.oee_settings.find(s=>s.work_center===wc)||{work_center:wc,...OEE_DEFAULT_SETTINGS}; }
+function oeePlannedMinutes(s){ return Math.max((s.shift_hours||0)*60-(s.short_breaks_count||0)*(s.short_break_minutes||0)-(s.meal_breaks_count||0)*(s.meal_break_minutes||0),0); }
+function ncrDateStr(n){ return (n.created_at||'').slice(0,10); }
+function oeeDayData(wc,dateStr){
+  const totalSqft=DB.wc_daily_log.filter(l=>l.work_center===wc&&l.log_date===dateStr).reduce((s,l)=>s+(l.sqft_delta||0),0);
+  const rejectSqft=DB.ncr.filter(n=>n.work_center===wc&&ncrDateStr(n)===dateStr).reduce((s,n)=>{
+    const o=orderById(n.order_id); return s+(o?sqftPerPiece(o)*(n.qty_rejected||0):0);
+  },0);
+  const downtimeMin=DB.downtime.filter(d=>d.work_center===wc&&d.log_date===dateStr&&d.type==='Unplanned').reduce((s,d)=>s+(d.minutes||0),0);
+  return {totalSqft,rejectSqft,downtimeMin};
+}
+function computeOEE(wc,dateStr){
+  const s=oeeSettingsFor(wc);
+  const planned=oeePlannedMinutes(s);
+  const {totalSqft,rejectSqft,downtimeMin}=oeeDayData(wc,dateStr);
+  const operating=Math.max(planned-downtimeMin,0);
+  const goodSqft=Math.max(totalSqft-rejectSqft,0);
+  const availability=planned>0?Math.min(operating/planned,1):null;
+  let performance=null;
+  if(s.ideal_run_rate>0){
+    performance=operating>0?Math.min((totalSqft/operating)/s.ideal_run_rate,1):(totalSqft>0?0:null);
+  }
+  const quality=totalSqft>0?Math.min(goodSqft/totalSqft,1):null;
+  const hasData=totalSqft>0||downtimeMin>0;
+  const oee=(hasData&&availability!=null&&performance!=null&&quality!=null)?availability*performance*quality:null;
+  return {date:dateStr,planned,operating,downtimeMin,totalSqft,rejectSqft,goodSqft,availability,performance,quality,oee,ideal_run_rate:s.ideal_run_rate||0};
+}
+function oeeRange(wc,fromStr,toStr){
+  const days=[]; let d=new Date(fromStr+'T00:00:00'); const end=new Date(toStr+'T00:00:00');
+  while(d<=end){ days.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
+  return days.map(ds=>computeOEE(wc,ds));
+}
+
 async function ins(table,row){const {data,error}=await _sb.from(table).insert(row).select().single(); if(error)throw new Error(error.message); DB[table].push(data); return data;}
 async function upd(table,id,patch){const {error}=await _sb.from(table).update(patch).eq('id',id); if(error)throw new Error(error.message); const r=DB[table].find(x=>x.id===id); if(r)Object.assign(r,patch);}
 async function del(table,id){const {error}=await _sb.from(table).delete().eq('id',id); if(error)throw new Error(error.message); DB[table]=DB[table].filter(x=>x.id!==id);}
@@ -918,6 +1042,13 @@ async function apiHandler(url,opts){
     if(delta>0){ const nextWC=getNextWC(order,wc); if(nextWC){ const np=progFor(body.order_id,nextWC);
       if(np) await upd('wc_progress',np.id,{received_qty:np.received_qty+delta});
       else await ins('wc_progress',{order_id:body.order_id,work_center:nextWC,received_qty:delta,done_qty:0,started_at:new Date().toISOString()}); } }
+    // Log the day's production delta for OEE (Performance factor). Uses the same
+    // comp_date the user set (supports back-dated entry), else today.
+    if(delta>0){
+      const logDate=body.comp_date||new Date().toISOString().slice(0,10);
+      try{ await ins('wc_daily_log',{work_center:wc,log_date:logDate,order_id:body.order_id,sqft_delta:sqftPerPiece(order)*delta,qty_delta:delta,created_by:SESSION?SESSION.username:'system'}); }
+      catch(e){ console.error('wc_daily_log insert failed:',e); }
+    }
     return {success:true,completed:isComplete&&!getNextWC(order,wc),delta};
   }
 
@@ -940,6 +1071,53 @@ async function apiHandler(url,opts){
     return DB.capacity.slice().sort((a,b)=>a.work_center.localeCompare(b.work_center)).map(c=>{ const load=wcLoad(active,c.work_center); return {...c,name:WCN[c.work_center]||c.work_center,load:Math.round(load*10)/10,pct:c.capacity_sqft>0?Math.round(load/c.capacity_sqft*1000)/10:0}; });
   }
   if((m=path.match(/^\/api\/capacity\/([A-Za-z]+)$/))&&method==='PUT'){ if(!isAdmin)return{error:'Admin only'}; const c=DB.capacity.find(x=>x.work_center===m[1].toUpperCase()); if(c)await upd('capacity',c.id,{capacity_sqft:body.capacity_sqft||0}); return {success:true}; }
+
+  if(path==='/api/oee/settings'&&method==='GET'){
+    return WC_SEQUENCE.map(wc=>{ const s=oeeSettingsFor(wc); return {...s,name:WCN[wc]}; });
+  }
+  if((m=path.match(/^\/api\/oee\/settings\/([A-Za-z]+)$/))&&method==='PUT'){
+    if(!isAdmin)return{error:'Admin only'};
+    const wc=m[1].toUpperCase();
+    const patch={shift_hours:+body.shift_hours||0,short_breaks_count:+body.short_breaks_count||0,short_break_minutes:+body.short_break_minutes||0,
+      meal_breaks_count:+body.meal_breaks_count||0,meal_break_minutes:+body.meal_break_minutes||0,ideal_run_rate:+body.ideal_run_rate||0,updated_at:new Date().toISOString()};
+    const ex=DB.oee_settings.find(x=>x.work_center===wc);
+    if(ex) await upd('oee_settings',ex.id,patch); else await ins('oee_settings',{work_center:wc,...patch});
+    return {success:true};
+  }
+  if(path==='/api/oee/downtime'&&method==='GET'){
+    const wc=query.get('wc'); let rows=DB.downtime.slice();
+    if(wc) rows=rows.filter(d=>d.work_center===wc);
+    return rows.sort((a,b)=>(b.log_date+String(b.start_time||'')).localeCompare(a.log_date+String(a.start_time||'')));
+  }
+  if(path==='/api/oee/downtime'&&method==='POST'){
+    if(!SESSION)return{error:'Not authenticated'};
+    const {work_center,log_date,type,reason,start_time,end_time}=body;
+    if(!work_center||!log_date||!type||!start_time||!end_time)return{error:'Missing fields'};
+    const [sh,sm]=start_time.split(':').map(Number), [eh,em]=end_time.split(':').map(Number);
+    let minutes=(eh*60+em)-(sh*60+sm); if(minutes<0)minutes+=1440;
+    if(!(minutes>0))return{error:'End time must be after start time'};
+    await ins('downtime',{work_center,log_date,type,reason:reason||'',start_time,end_time,minutes,created_by:SESSION.username});
+    return {success:true};
+  }
+  if((m=path.match(/^\/api\/oee\/downtime\/(\d+)$/))&&method==='DELETE'){
+    if(!isAdmin)return{error:'Admin only'}; await del('downtime',+m[1]); return {success:true};
+  }
+  if(path==='/api/oee/day'){
+    const wc=(query.get('wc')||'CT').toUpperCase(), date=query.get('date')||new Date().toISOString().slice(0,10);
+    return computeOEE(wc,date);
+  }
+  if(path==='/api/oee/range'){
+    const wc=(query.get('wc')||'CT').toUpperCase(), from=query.get('from'), to=query.get('to');
+    return oeeRange(wc,from,to);
+  }
+  if(path==='/api/oee/today'){
+    const today=new Date().toISOString().slice(0,10);
+    const rows=WC_SEQUENCE.map(wc=>({wc,name:WCN[wc],...computeOEE(wc,today)})).filter(r=>r.oee!=null);
+    const overall=rows.length?rows.reduce((s,r)=>s+r.oee,0)/rows.length:null;
+    const best=rows.length?rows.reduce((a,b)=>b.oee>a.oee?b:a):null;
+    const worst=rows.length?rows.reduce((a,b)=>b.oee<a.oee?b:a):null;
+    return {date:today,overall,rows,best,worst};
+  }
 
   if(path==='/api/holidays'&&method==='GET') return DB.holidays.slice().sort((a,b)=>String(a.holiday_date).localeCompare(String(b.holiday_date)));
   if(path==='/api/holidays'&&method==='POST'){ if(!isAdmin)return{error:'Admin only'}; const ex=DB.holidays.find(h=>h.holiday_date===body.holiday_date); if(ex)await upd('holidays',ex.id,{name:body.name}); else await ins('holidays',{holiday_date:body.holiday_date,name:body.name}); return {success:true}; }
@@ -1233,12 +1411,12 @@ function nav(page,wc){
   CUR={page,wc:wc||null};
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nl').forEach(l=>l.classList.remove('active'));
-  const titles={dashboard:'Dashboard',orders:'Order Book',plan:'Production Plan',capacity:'Capacity Analysis',
+  const titles={dashboard:'Dashboard',orders:'Order Book',plan:'Production Plan',capacity:'Capacity Analysis',oee:'OEE',
     ncr:'NCR Log',holidays:'Holidays',users:'User Management',import:'Import from Excel',
     wc:wc?(wc==='QC'?'QC Ready — Awaiting Dispatch':`${WN[wc]} (${wc})`):'Work Center'};
   $('page-title').textContent=titles[page]||page;
   $(page==='wc'?'page-wc':`page-${page}`).classList.add('active');
-  const nlMap={dashboard:0,orders:1,plan:2,capacity:3,CT:4,GR:5,PE:6,BV:7,HL:8,PR:9,TG:10,BG:11,LG:12,FR:13,DG:14,QC:15,ncr:16,holidays:17,users:18,import:19};
+  const nlMap={dashboard:0,orders:1,plan:2,capacity:3,oee:4,CT:5,GR:6,PE:7,BV:8,HL:9,PR:10,TG:11,BG:12,LG:13,FR:14,DG:15,QC:16,ncr:17,holidays:18,users:19,import:20};
   const nls=document.querySelectorAll('.nl');
   const idx=page==='wc'?nlMap[wc]:nlMap[page];
   if(nls[idx]) nls[idx].classList.add('active');
@@ -1249,6 +1427,7 @@ function nav(page,wc){
   if(page==='orders') loadOrders();
   if(page==='plan') loadPlan();
   if(page==='capacity') loadCapacity();
+  if(page==='oee') loadOEE();
   if(page==='wc'){_wcShowCompleted=false;loadWC(wc);}
   if(page==='ncr') loadNCR();
   if(page==='holidays') loadHolidays();
@@ -1311,6 +1490,7 @@ async function loadDash(){
     <td style="font-weight:700">${o.order_qty}</td>
     <td>${wcDots(o)}</td>
   </tr>`).join(''):'<tr><td class="emp" colspan="6"><i class="fa fa-check-circle" style="color:var(--ok);font-size:1.1rem"></i><br>No late orders — great work!</td></tr>';
+  loadOEESnapshot();
 }
 
 function capCard(u,wc){
@@ -1689,6 +1869,116 @@ function wcDots(o){
   }).join('')}</div>`;
 }
 function toast(msg,type='ok'){const el=document.createElement('div');el.className=`tm ${type}`;el.textContent=msg;$('toast').appendChild(el);setTimeout(()=>el.remove(),3800);}
+
+/* ── OEE page ── */
+let CUR_OEE_WC='CT';
+function oeePct(v){ return v==null?'—':(Math.round(v*1000)/10)+'%'; }
+function oeeColor(v){ return v==null?'var(--subtle)':v>=.85?'var(--ok)':v>=.6?'var(--amber)':'var(--red)'; }
+function initOeeTabs(){
+  const wrap=$('oee-wc-tabs'); if(!wrap)return;
+  wrap.innerHTML=PROD_WCS.map(wc=>`<div class="wc-cb${wc===CUR_OEE_WC?' ck':''}" data-wc="${wc}" onclick="selectOeeWC('${wc}')">${wc}</div>`).join('');
+}
+function selectOeeWC(wc){
+  CUR_OEE_WC=wc;
+  document.querySelectorAll('#oee-wc-tabs .wc-cb').forEach(el=>el.classList.toggle('ck',el.dataset.wc===wc));
+  loadOEE();
+}
+async function loadOEE(){
+  initOeeTabs();
+  const dateEl=$('oee-date'); if(!dateEl.value) dateEl.value=new Date().toISOString().slice(0,10);
+  const r=await get(`/api/oee/day?wc=${CUR_OEE_WC}&date=${dateEl.value}`);
+  renderOeeKpis(r);
+  $('oee-trend-wc-lbl').textContent=`${WN[CUR_OEE_WC]} (${CUR_OEE_WC})`;
+  $('oee-dt-wc-lbl').textContent=`${WN[CUR_OEE_WC]} (${CUR_OEE_WC})`;
+  await loadOEEDowntime();
+  await loadOEETrend();
+  if(USER?.role==='admin'){ $('oee-settings-section').style.display=''; loadOEESettings(); }
+}
+function renderOeeKpis(r){
+  $('oee-kpis').innerHTML=`
+    <div class="kpi green"><i class="fa fa-bolt kpi-icon"></i><div class="lbl">Overall OEE</div><div class="val" style="color:${oeeColor(r.oee)}">${oeePct(r.oee)}</div><div class="sub">${WN[CUR_OEE_WC]} · ${fmtDate(r.date)}</div></div>
+    <div class="kpi teal"><i class="fa fa-clock kpi-icon"></i><div class="lbl">Availability</div><div class="val">${oeePct(r.availability)}</div><div class="sub">${Math.round(r.operating)} / ${Math.round(r.planned)} min run</div></div>
+    <div class="kpi orange"><i class="fa fa-tachometer-alt kpi-icon"></i><div class="lbl">Performance</div><div class="val">${oeePct(r.performance)}</div><div class="sub">${r.ideal_run_rate>0?Math.round(r.totalSqft)+' sqft @ '+r.ideal_run_rate+'/min':'Ideal rate not set'}</div></div>
+    <div class="kpi purple"><i class="fa fa-check-circle kpi-icon"></i><div class="lbl">Quality</div><div class="val">${oeePct(r.quality)}</div><div class="sub">${Math.round(r.goodSqft)} good / ${Math.round(r.totalSqft)} sqft</div></div>
+    <div class="kpi red"><i class="fa fa-hourglass-half kpi-icon"></i><div class="lbl">Downtime</div><div class="val">${Math.round(r.downtimeMin)}m</div><div class="sub">unplanned, this day</div></div>
+  `;
+}
+async function loadOEEDowntime(){
+  const rows=await get(`/api/oee/downtime?wc=${CUR_OEE_WC}`);
+  $('oee-downtime-tbody').innerHTML=rows.length?rows.slice(0,50).map(d=>`<tr>
+    <td>${fmtDate(d.log_date)}</td>
+    <td><span class="badge ${d.type==='Unplanned'?'r':'gy'}">${d.type}</span></td>
+    <td style="font-size:.78rem">${d.reason||'—'}</td>
+    <td>${d.start_time||''}</td><td>${d.end_time||''}</td>
+    <td style="font-weight:700">${Math.round(d.minutes)}</td>
+    <td style="font-size:.74rem;color:var(--subtle)">${d.created_by||'—'}</td>
+    <td>${USER?.role==='admin'?`<button class="btn btn-d btn-sm btn-ic" onclick="deleteDowntime(${d.id})" title="Delete"><i class="fa fa-trash"></i></button>`:''}</td>
+  </tr>`).join(''):'<tr><td class="emp" colspan="8">No downtime logged for this work center yet</td></tr>';
+}
+async function deleteDowntime(id){
+  if(!confirm('Delete this downtime entry?'))return;
+  await fetch(`/api/oee/downtime/${id}`,{method:'DELETE'});
+  toast('Downtime entry deleted','ok'); await reloadAll(); loadOEE();
+}
+function openDowntimeModal(){
+  const sel=$('dt-wc'); sel.innerHTML=PROD_WCS.map(wc=>`<option value="${wc}" ${wc===CUR_OEE_WC?'selected':''}>${wc} — ${WN[wc]}</option>`).join('');
+  $('dt-date').value=$('oee-date')?.value||new Date().toISOString().slice(0,10);
+  $('dt-type').value='Unplanned'; $('dt-reason').value='Machine Breakdown'; $('dt-start').value=''; $('dt-end').value='';
+  $('downtime-modal').classList.add('open');
+}
+async function submitDowntime(){
+  const body={work_center:$('dt-wc').value,log_date:$('dt-date').value,type:$('dt-type').value,reason:$('dt-reason').value,start_time:$('dt-start').value,end_time:$('dt-end').value};
+  if(!body.log_date||!body.start_time||!body.end_time) return toast('Date, start and end time are required','err');
+  const res=await post('/api/oee/downtime',body);
+  if(res.error) return toast(res.error,'err');
+  toast('Downtime logged','ok'); closeModal('downtime-modal'); await reloadAll(); loadOEE();
+}
+async function loadOEETrend(){
+  const days=parseInt($('oee-trend-range')?.value||'30');
+  const to=new Date(); const from=new Date(); from.setDate(to.getDate()-days+1);
+  const fromStr=from.toISOString().slice(0,10), toStr=to.toISOString().slice(0,10);
+  const rows=await get(`/api/oee/range?wc=${CUR_OEE_WC}&from=${fromStr}&to=${toStr}`);
+  const labels=rows.map(r=>r.date.slice(5));
+  const data=rows.map(r=>r.oee!=null?Math.round(r.oee*1000)/10:null);
+  if(window._oeeChart) window._oeeChart.destroy();
+  window._oeeChart=new Chart($('oee-trend-chart'),{
+    type:'line',
+    data:{labels,datasets:[{label:'OEE %',data,borderColor:'#2d7a4f',backgroundColor:'rgba(45,122,79,.12)',fill:true,tension:.25,spanGaps:true,pointRadius:2}]},
+    options:{responsive:true,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>ctx.parsed.y==null?'No data':ctx.parsed.y+'%'}}},scales:{y:{min:0,max:100,ticks:{callback:v=>v+'%'}}}}
+  });
+}
+async function loadOEESettings(){
+  const rows=await get('/api/oee/settings');
+  $('oee-settings-tbody').innerHTML=rows.map(s=>`<tr>
+    <td><strong style="color:var(--green-dark)">${s.work_center}</strong></td>
+    <td><input type="number" class="fc fc-sm" style="width:70px" id="oset-sh-${s.work_center}" value="${s.shift_hours}"></td>
+    <td><input type="number" class="fc fc-sm" style="width:60px" id="oset-sbc-${s.work_center}" value="${s.short_breaks_count}"></td>
+    <td><input type="number" class="fc fc-sm" style="width:60px" id="oset-sbm-${s.work_center}" value="${s.short_break_minutes}"></td>
+    <td><input type="number" class="fc fc-sm" style="width:60px" id="oset-mbc-${s.work_center}" value="${s.meal_breaks_count}"></td>
+    <td><input type="number" class="fc fc-sm" style="width:60px" id="oset-mbm-${s.work_center}" value="${s.meal_break_minutes}"></td>
+    <td><input type="number" step="0.01" class="fc fc-sm" style="width:85px" id="oset-rate-${s.work_center}" value="${s.ideal_run_rate}"></td>
+    <td><button class="btn btn-p btn-sm" onclick="saveOeeSetting('${s.work_center}')">Save</button></td>
+  </tr>`).join('');
+}
+async function saveOeeSetting(wc){
+  const body={shift_hours:$(`oset-sh-${wc}`).value,short_breaks_count:$(`oset-sbc-${wc}`).value,short_break_minutes:$(`oset-sbm-${wc}`).value,
+    meal_breaks_count:$(`oset-mbc-${wc}`).value,meal_break_minutes:$(`oset-mbm-${wc}`).value,ideal_run_rate:$(`oset-rate-${wc}`).value};
+  await fetch(`/api/oee/settings/${wc}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  toast(`${wc} OEE settings updated`,'ok'); await reloadAll(); loadOEE();
+}
+async function loadOEESnapshot(){
+  const r=await get('/api/oee/today');
+  $('oee-snap-date').textContent='as of '+fmtDate(r.date);
+  if(!r.rows.length){ $('oee-snapshot').innerHTML=`<div class="emp" style="padding:14px 0">No OEE data recorded yet today — enter production &amp; downtime on a work center page to see it here.</div>`; return; }
+  $('oee-snapshot').innerHTML=`
+    <div style="display:flex;align-items:center;gap:26px;flex-wrap:wrap;margin-bottom:14px">
+      <div><div style="font-size:2rem;font-weight:800;color:${oeeColor(r.overall)}">${oeePct(r.overall)}</div><div style="font-size:.7rem;color:var(--subtle);font-weight:700;text-transform:uppercase">Overall Company OEE</div></div>
+      ${r.best?`<div><span class="badge g">Best</span><div style="font-weight:700;margin-top:4px">${r.best.name} — ${oeePct(r.best.oee)}</div></div>`:''}
+      ${r.worst&&r.worst.wc!==r.best?.wc?`<div><span class="badge r">Worst</span><div style="font-weight:700;margin-top:4px">${r.worst.name} — ${oeePct(r.worst.oee)}</div></div>`:''}
+    </div>
+    <div class="cap-grid">${r.rows.map(row=>`<div class="cap-item"><div class="cap-hdr"><span class="cap-nm">${row.name}<span class="cap-code">${row.wc}</span></span><span class="cap-pct" style="color:${oeeColor(row.oee)}">${oeePct(row.oee)}</span></div><div class="cap-bar"><div class="cap-fill" style="width:${Math.min(row.oee*100,100)}%;background:${oeeColor(row.oee)}"></div></div></div>`).join('')}</div>
+  `;
+}
 
 init();
 </script>
