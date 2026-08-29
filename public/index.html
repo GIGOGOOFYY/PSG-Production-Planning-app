@@ -155,6 +155,21 @@ tr:hover td{background:var(--green-pale)}
 .pi:focus{outline:none;border-color:var(--green)}
 .page{display:none}.page.active{display:block}
 .dv{border:none;border-top:1px solid var(--border-light);margin:16px 0}
+.obl-row{border:1.5px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:12px;background:#fbfdfc;transition:border-color .15s}
+.obl-row.obl-saved{border-color:var(--green);background:var(--green-pale)}
+.obl-row.obl-error{border-color:#d9534f;background:#fdf2f2}
+.obl-row-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.obl-row-head strong{color:var(--green-dark);font-size:.85rem;white-space:nowrap}
+.obl-num-preview{font-size:.72rem;color:var(--subtle);font-family:monospace;flex:1;overflow:hidden;text-overflow:ellipsis}
+.obl-row-actions{display:flex;gap:6px;margin-left:auto}
+.obl-row-grid{display:grid;grid-template-columns:repeat(3,minmax(90px,1fr));gap:10px;margin-bottom:10px}
+.obl-row-grid .fg{gap:3px}
+.obl-row-grid label{font-size:.68rem}
+.wc-cbs-sm{gap:6px}
+.wc-cbs-sm .wc-cb{padding:3px 9px;font-size:.68rem}
+.obl-row-status{font-size:.68rem;font-weight:700;margin-left:6px}
+.obl-row-status.ok{color:var(--green)}
+.obl-row-status.err{color:#d9534f}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .emp{text-align:center;color:var(--subtle);padding:32px!important;font-size:.83rem}
 
@@ -305,7 +320,7 @@ body.dark .ch{background:#111e16}
     <div class="tb-right">
       <span id="today-lbl"></span>
       <button id="btn-print" class="btn btn-sm" onclick="printPage()" style="display:none;background:#fff;border:1px solid var(--border);color:var(--green-dark)" title="Print / Save as PDF"><i class="fa fa-print"></i> Print</button>
-      <button id="btn-new-order" class="btn btn-p btn-sm" onclick="openOrderModal()" style="display:none"><i class="fa fa-plus"></i> New Order</button>
+      <button id="btn-new-order" class="btn btn-p btn-sm" onclick="openNewOrderModal()" style="display:none"><i class="fa fa-plus"></i> New Order</button>
     </div>
   </div>
 
@@ -605,6 +620,38 @@ body.dark .ch{background:#111e16}
     <div class="mf">
       <button class="btn btn-o" onclick="closeModal('order-modal')">Cancel</button>
       <button class="btn btn-p" onclick="saveOrder()"><i class="fa fa-save"></i> Save Order</button>
+    </div>
+  </div>
+</div>
+
+<div class="mo" id="new-order-modal">
+  <div class="modal" style="max-width:920px">
+    <div class="mh"><h3><i class="fa fa-layer-group"></i> &nbsp;New Order</h3><button class="btn btn-o btn-ic" onclick="closeModal('new-order-modal')"><i class="fa fa-times"></i></button></div>
+    <div class="mb">
+      <div class="fgrid">
+        <div class="fg"><label>Order Number *</label><input class="fc" id="no-order_number" placeholder="e.g. 24300" oninput="updateOrderNumberPreviews()"></div>
+        <div class="fg"><label>Client Name *</label><input class="fc" id="no-client_name" placeholder="Client / company name"></div>
+        <div class="fg"><label>Order Type</label>
+          <select class="fc" id="no-order_type"><option>Architectural</option><option>Automotive</option><option>Windscreen</option><option>Appliances</option><option>Furniture</option></select>
+        </div>
+        <div class="fg"><label>Status</label>
+          <select class="fc" id="no-status"><option value="Active">Active</option><option value="On Hold">On Hold</option><option value="Cancelled">Cancelled</option></select>
+        </div>
+        <div class="fg"><label>Order Date</label><input type="date" class="fc" id="no-order_date"></div>
+        <div class="fg"><label>Delivery Date</label><input type="date" class="fc" id="no-delivery_date"></div>
+      </div>
+      <div style="font-size:.68rem;color:var(--subtle);margin-top:4px">One oblique added below → saved as just the Order Number above. Two or more → auto-numbered <code>24300/1</code>, <code>24300/2</code>, …</div>
+      <div class="dv"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
+        <label style="font-size:.78rem;font-weight:700;color:var(--txt)">Obliques</label>
+        <button type="button" class="btn btn-o btn-sm" onclick="addObliqueRow()"><i class="fa fa-plus"></i> Add Oblique</button>
+      </div>
+      <div id="oblique-rows"></div>
+      <div class="fg" style="margin-top:6px"><label>Notes</label><textarea class="fc" id="no-notes" rows="2" placeholder="Special instructions, dimensions, coatings… (applies to whole order)"></textarea></div>
+    </div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="closeModal('new-order-modal')">Cancel</button>
+      <button class="btn btn-p" id="no-save-btn" onclick="saveNewOrder()"><i class="fa fa-save"></i> Save Order</button>
     </div>
   </div>
 </div>
@@ -1864,6 +1911,105 @@ async function delOrder(id,num){
   if(!confirm(`Delete oblique ${num}? This cannot be undone.`)) return;
   await fetch(`/api/orders/${id}`,{method:'DELETE'});
   toast('Order deleted','ok');loadOrders();
+}
+
+/* ---- New Order: multi-oblique entry ---- */
+let NEW_ORDER_ROWS=[];
+function blankObliqueRow(){const wcs={};WC_SEQUENCE.forEach(wc=>wcs[wc.toLowerCase()]=false);return {height_mm:'',width_mm:'',order_qty:'',wcs,saved:false,error:''};}
+function openNewOrderModal(){
+  ['order_number','client_name','order_date','delivery_date','notes'].forEach(f=>{const el=$('no-'+f);if(el)el.value='';});
+  $('no-order_type').value='Architectural'; $('no-status').value='Active';
+  NEW_ORDER_ROWS=[blankObliqueRow()];
+  renderObliqueRows();
+  $('new-order-modal').classList.add('open');
+  setTimeout(()=>$('no-order_number')?.focus(),50);
+}
+function baseOrderNumber(){return ($('no-order_number')?.value||'').trim();}
+function computedOrderNumber(idx){
+  const base=baseOrderNumber();
+  if(!base)return '';
+  return NEW_ORDER_ROWS.length>1 ? `${base}/${idx+1}` : base;
+}
+function updateOrderNumberPreviews(){
+  NEW_ORDER_ROWS.forEach((r,i)=>{const el=$('obl-num-'+i);if(el)el.textContent=computedOrderNumber(i)?`→ ${computedOrderNumber(i)}`:'';});
+}
+function renderObliqueRows(){
+  $('oblique-rows').innerHTML=NEW_ORDER_ROWS.map((r,i)=>`
+    <div class="obl-row${r.saved?' obl-saved':''}${r.error?' obl-error':''}" data-idx="${i}">
+      <div class="obl-row-head">
+        <strong>Oblique ${i+1}</strong>
+        <span class="obl-num-preview" id="obl-num-${i}">${computedOrderNumber(i)?`→ ${computedOrderNumber(i)}`:''}</span>
+        ${r.saved?'<span class="obl-row-status ok"><i class="fa fa-check-circle"></i> Saved</span>':''}
+        ${r.error?`<span class="obl-row-status err" title="${r.error}"><i class="fa fa-exclamation-circle"></i> ${r.error}</span>`:''}
+        <div class="obl-row-actions">
+          <button type="button" class="btn btn-o btn-ic" title="Duplicate this oblique" onclick="duplicateObliqueRow(${i})" ${r.saved?'disabled':''}><i class="fa fa-clone"></i></button>
+          <button type="button" class="btn btn-o btn-ic" title="Remove" onclick="removeObliqueRow(${i})" ${NEW_ORDER_ROWS.length<=1||r.saved?'disabled':''}><i class="fa fa-trash"></i></button>
+        </div>
+      </div>
+      <div class="obl-row-grid">
+        <div class="fg"><label>Height (mm)</label><input type="number" class="fc" value="${r.height_mm}" ${r.saved?'disabled':''} oninput="updateRowField(${i},'height_mm',this.value)"></div>
+        <div class="fg"><label>Width (mm)</label><input type="number" class="fc" value="${r.width_mm}" ${r.saved?'disabled':''} oninput="updateRowField(${i},'width_mm',this.value)"></div>
+        <div class="fg"><label>Qty (pcs)</label><input type="number" class="fc" value="${r.order_qty}" ${r.saved?'disabled':''} oninput="updateRowField(${i},'order_qty',this.value)"></div>
+      </div>
+      <div class="wc-cbs wc-cbs-sm">
+        ${WC_SEQUENCE.map(wc=>`<div class="wc-cb ${r.wcs[wc.toLowerCase()]?'ck':''}" onclick="${r.saved?'':`toggleRowWC(${i},'${wc.toLowerCase()}')`}" title="${WCN[wc]}">${wc}</div>`).join('')}
+      </div>
+    </div>`).join('');
+}
+function updateRowField(i,field,val){NEW_ORDER_ROWS[i][field]=val;if(field!=='order_qty')updateOrderNumberPreviews();}
+function toggleRowWC(i,wc){NEW_ORDER_ROWS[i].wcs[wc]=!NEW_ORDER_ROWS[i].wcs[wc];renderObliqueRows();}
+function addObliqueRow(){
+  const prev=NEW_ORDER_ROWS[NEW_ORDER_ROWS.length-1];
+  const row=blankObliqueRow();
+  if(prev){row.height_mm=prev.height_mm;row.width_mm=prev.width_mm;row.wcs={...prev.wcs};}
+  NEW_ORDER_ROWS.push(row);
+  renderObliqueRows();updateOrderNumberPreviews();
+  setTimeout(()=>{const rows=document.querySelectorAll('#oblique-rows .obl-row');rows[rows.length-1]?.querySelector('input')?.focus();},30);
+}
+function duplicateObliqueRow(i){
+  const src=NEW_ORDER_ROWS[i];
+  NEW_ORDER_ROWS.splice(i+1,0,{height_mm:src.height_mm,width_mm:src.width_mm,order_qty:src.order_qty,wcs:{...src.wcs},saved:false,error:''});
+  renderObliqueRows();updateOrderNumberPreviews();
+}
+function removeObliqueRow(i){
+  if(NEW_ORDER_ROWS.length<=1)return;
+  NEW_ORDER_ROWS.splice(i,1);
+  renderObliqueRows();updateOrderNumberPreviews();
+}
+async function saveNewOrder(){
+  const base=baseOrderNumber();
+  const client=($('no-client_name').value||'').trim();
+  if(!base) return toast('Order number required','err');
+  if(!client) return toast('Client name required','err');
+  const shared={
+    client_name:client, order_type:$('no-order_type').value, status:$('no-status').value,
+    order_date:$('no-order_date').value||null, delivery_date:$('no-delivery_date').value||null,
+    notes:($('no-notes').value||'')
+  };
+  const pending=NEW_ORDER_ROWS.map((r,i)=>({r,i})).filter(x=>!x.r.saved);
+  if(pending.length===0) return toast('Nothing to save','err');
+  const btn=$('no-save-btn'); btn.disabled=true; btn.innerHTML='<i class="fa fa-spinner fa-spin"></i> Saving…';
+  let okCount=0, errCount=0;
+  for(const {r,i} of pending){
+    const num=computedOrderNumber(i);
+    if(!num){r.error='No number';errCount++;continue;}
+    const body={...shared, order_number:num,
+      height_mm:parseFloat(r.height_mm)||0, width_mm:parseFloat(r.width_mm)||0, order_qty:parseInt(r.order_qty)||0};
+    WC_SEQUENCE.forEach(wc=>body[wc.toLowerCase()]=!!r.wcs[wc.toLowerCase()]);
+    try{
+      const res=await post('/api/orders',body);
+      if(res.error){r.error=res.error;errCount++;}
+      else{r.saved=true;okCount++;}
+    }catch(e){r.error='Save failed';errCount++;}
+  }
+  btn.disabled=false; btn.innerHTML='<i class="fa fa-save"></i> Save Order';
+  renderObliqueRows();
+  if(errCount===0){
+    toast(`${okCount} oblique${okCount===1?'':'s'} created ✓`,'ok');
+    closeModal('new-order-modal'); loadOrders();
+  }else{
+    toast(`${okCount} saved, ${errCount} failed — fix and retry`,'err');
+  }
 }
 
 async function doImport(){
