@@ -640,7 +640,7 @@ body.dark .ch{background:#111e16}
         <div class="fg"><label>Order Date</label><input type="date" class="fc" id="no-order_date"></div>
         <div class="fg"><label>Delivery Date</label><input type="date" class="fc" id="no-delivery_date"></div>
       </div>
-      <div style="font-size:.68rem;color:var(--subtle);margin-top:4px">One oblique added below → saved as just the Order Number above. Two or more → auto-numbered <code>24300/1</code>, <code>24300/2</code>, …</div>
+      <div style="font-size:.68rem;color:var(--subtle);margin-top:4px">Each oblique below gets its own number (shown as e.g. <code>24300/1</code>) — it defaults to the next in sequence but you can edit it, so runs like 10‑13, 15‑20, 25 are no problem. Clear a number to save that oblique as just the Order Number above.</div>
       <div class="dv"></div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
         <label style="font-size:.78rem;font-weight:700;color:var(--txt)">Obliques</label>
@@ -885,6 +885,14 @@ function computeOEE(wc,dateStr){
   const hasData=totalSqft>0||downtimeMin>0;
   const oee=(hasData&&availability!=null&&performance!=null&&quality!=null)?availability*performance*quality:null;
   return {date:dateStr,planned,operating,downtimeMin,totalSqft,rejectSqft,goodSqft,availability,performance,quality,oee,ideal_run_rate:s.ideal_run_rate||0};
+}
+// Earliest date any OEE-relevant activity (production or downtime) was logged.
+// Pass a work_center code to scope to one WC, or omit for company-wide (any WC).
+function earliestOeeDate(wc){
+  let min=null;
+  const check=r=>{ if(wc&&r.work_center!==wc)return; if(r.log_date&&(!min||r.log_date<min))min=r.log_date; };
+  DB.wc_daily_log.forEach(check); DB.downtime.forEach(check);
+  return min;
 }
 function oeeRange(wc,fromStr,toStr){
   const days=[]; let d=new Date(fromStr+'T00:00:00'); const end=new Date(toStr+'T00:00:00');
@@ -1915,11 +1923,21 @@ async function delOrder(id,num){
 
 /* ---- New Order: multi-oblique entry ---- */
 let NEW_ORDER_ROWS=[];
-function blankObliqueRow(){const wcs={};WC_SEQUENCE.forEach(wc=>wcs[wc.toLowerCase()]=false);return {height_mm:'',width_mm:'',order_qty:'',wcs,saved:false,error:''};}
+function blankObliqueRow(suffix){const wcs={};WC_SEQUENCE.forEach(wc=>wcs[wc.toLowerCase()]=false);return {suffix:suffix===undefined?'':suffix,height_mm:'',width_mm:'',order_qty:'',wcs,saved:false,error:''};}
+// Given a suffix like "13" or "PN-07", returns the next one in sequence ("14" / "PN-08").
+// Falls back to '' (blank, user fills in) if no trailing number is found.
+function nextSuffix(s){
+  const str=(s||'').toString().trim();
+  const m=str.match(/^(.*?)(\d+)$/);
+  if(!m) return '';
+  const prefix=m[1], numStr=m[2], num=parseInt(numStr,10)+1;
+  const padded=(numStr.length>1&&numStr[0]==='0')?String(num).padStart(numStr.length,'0'):String(num);
+  return prefix+padded;
+}
 function openNewOrderModal(){
   ['order_number','client_name','order_date','delivery_date','notes'].forEach(f=>{const el=$('no-'+f);if(el)el.value='';});
   $('no-order_type').value='Architectural'; $('no-status').value='Active';
-  NEW_ORDER_ROWS=[blankObliqueRow()];
+  NEW_ORDER_ROWS=[blankObliqueRow('1')];
   renderObliqueRows();
   $('new-order-modal').classList.add('open');
   setTimeout(()=>$('no-order_number')?.focus(),50);
@@ -1928,7 +1946,8 @@ function baseOrderNumber(){return ($('no-order_number')?.value||'').trim();}
 function computedOrderNumber(idx){
   const base=baseOrderNumber();
   if(!base)return '';
-  return NEW_ORDER_ROWS.length>1 ? `${base}/${idx+1}` : base;
+  const suf=(NEW_ORDER_ROWS[idx]?.suffix||'').toString().trim();
+  return suf?`${base}/${suf}`:base;
 }
 function updateOrderNumberPreviews(){
   NEW_ORDER_ROWS.forEach((r,i)=>{const el=$('obl-num-'+i);if(el)el.textContent=computedOrderNumber(i)?`→ ${computedOrderNumber(i)}`:'';});
@@ -1937,7 +1956,8 @@ function renderObliqueRows(){
   $('oblique-rows').innerHTML=NEW_ORDER_ROWS.map((r,i)=>`
     <div class="obl-row${r.saved?' obl-saved':''}${r.error?' obl-error':''}" data-idx="${i}">
       <div class="obl-row-head">
-        <strong>Oblique ${i+1}</strong>
+        <span style="font-size:.65rem;font-weight:800;color:var(--subtle);text-transform:uppercase">Oblique #</span>
+        <input type="text" class="fc" style="width:76px;padding:5px 8px" value="${r.suffix}" ${r.saved?'disabled':''} placeholder="—" oninput="updateRowSuffix(${i},this.value)">
         <span class="obl-num-preview" id="obl-num-${i}">${computedOrderNumber(i)?`→ ${computedOrderNumber(i)}`:''}</span>
         ${r.saved?'<span class="obl-row-status ok"><i class="fa fa-check-circle"></i> Saved</span>':''}
         ${r.error?`<span class="obl-row-status err" title="${r.error}"><i class="fa fa-exclamation-circle"></i> ${r.error}</span>`:''}
@@ -1956,25 +1976,26 @@ function renderObliqueRows(){
       </div>
     </div>`).join('');
 }
-function updateRowField(i,field,val){NEW_ORDER_ROWS[i][field]=val;if(field!=='order_qty')updateOrderNumberPreviews();}
+function updateRowField(i,field,val){NEW_ORDER_ROWS[i][field]=val;}
+function updateRowSuffix(i,val){NEW_ORDER_ROWS[i].suffix=val;const el=$('obl-num-'+i);if(el)el.textContent=computedOrderNumber(i)?`→ ${computedOrderNumber(i)}`:'';}
 function toggleRowWC(i,wc){NEW_ORDER_ROWS[i].wcs[wc]=!NEW_ORDER_ROWS[i].wcs[wc];renderObliqueRows();}
 function addObliqueRow(){
   const prev=NEW_ORDER_ROWS[NEW_ORDER_ROWS.length-1];
-  const row=blankObliqueRow();
+  const row=blankObliqueRow(prev?nextSuffix(prev.suffix):'1');
   if(prev){row.height_mm=prev.height_mm;row.width_mm=prev.width_mm;row.wcs={...prev.wcs};}
   NEW_ORDER_ROWS.push(row);
-  renderObliqueRows();updateOrderNumberPreviews();
-  setTimeout(()=>{const rows=document.querySelectorAll('#oblique-rows .obl-row');rows[rows.length-1]?.querySelector('input')?.focus();},30);
+  renderObliqueRows();
+  setTimeout(()=>{const rows=document.querySelectorAll('#oblique-rows .obl-row');rows[rows.length-1]?.querySelector('input[type=number]')?.focus();},30);
 }
 function duplicateObliqueRow(i){
   const src=NEW_ORDER_ROWS[i];
-  NEW_ORDER_ROWS.splice(i+1,0,{height_mm:src.height_mm,width_mm:src.width_mm,order_qty:src.order_qty,wcs:{...src.wcs},saved:false,error:''});
-  renderObliqueRows();updateOrderNumberPreviews();
+  NEW_ORDER_ROWS.splice(i+1,0,{suffix:nextSuffix(src.suffix),height_mm:src.height_mm,width_mm:src.width_mm,order_qty:src.order_qty,wcs:{...src.wcs},saved:false,error:''});
+  renderObliqueRows();
 }
 function removeObliqueRow(i){
   if(NEW_ORDER_ROWS.length<=1)return;
   NEW_ORDER_ROWS.splice(i,1);
-  renderObliqueRows();updateOrderNumberPreviews();
+  renderObliqueRows();
 }
 async function saveNewOrder(){
   const base=baseOrderNumber();
@@ -1988,6 +2009,16 @@ async function saveNewOrder(){
   };
   const pending=NEW_ORDER_ROWS.map((r,i)=>({r,i})).filter(x=>!x.r.saved);
   if(pending.length===0) return toast('Nothing to save','err');
+  // Guard against two rows in this same batch computing to the same oblique number
+  pending.forEach(({r})=>{r.error='';});
+  const seen={};
+  let dupFound=false;
+  pending.forEach(({r,i})=>{
+    const num=computedOrderNumber(i);
+    if(num&&seen[num]){r.error='Duplicate number in this batch';dupFound=true;}
+    else if(num)seen[num]=true;
+  });
+  if(dupFound){ renderObliqueRows(); return toast('Two obliques have the same number — fix before saving','err'); }
   const btn=$('no-save-btn'); btn.disabled=true; btn.innerHTML='<i class="fa fa-spinner fa-spin"></i> Saving…';
   let okCount=0, errCount=0;
   for(const {r,i} of pending){
@@ -2069,7 +2100,11 @@ async function loadOEE(){
 async function loadCompanyOEETrend(){
   const days=parseInt($('oee-company-trend-range')?.value||'30');
   const to=new Date(); const from=new Date(); from.setDate(to.getDate()-days+1);
-  const fromStr=from.toISOString().slice(0,10), toStr=to.toISOString().slice(0,10);
+  let fromStr=from.toISOString().slice(0,10); const toStr=to.toISOString().slice(0,10);
+  // Don't let the window reach back before OEE tracking actually started — a brand-new
+  // range would otherwise be mostly empty space with one lonely point at the end.
+  const earliest=earliestOeeDate();
+  fromStr=earliest?(earliest>fromStr?earliest:fromStr):toStr;
   const rows=await get(`/api/oee/company-range?from=${fromStr}&to=${toStr}`);
   const labels=rows.map(r=>r.date.slice(5));
   const data=rows.map(r=>r.overall!=null?Math.round(r.overall*1000)/10:null);
@@ -2122,7 +2157,9 @@ async function submitDowntime(){
 async function loadOEETrend(){
   const days=parseInt($('oee-trend-range')?.value||'30');
   const to=new Date(); const from=new Date(); from.setDate(to.getDate()-days+1);
-  const fromStr=from.toISOString().slice(0,10), toStr=to.toISOString().slice(0,10);
+  let fromStr=from.toISOString().slice(0,10); const toStr=to.toISOString().slice(0,10);
+  const earliest=earliestOeeDate(CUR_OEE_WC);
+  fromStr=earliest?(earliest>fromStr?earliest:fromStr):toStr;
   const rows=await get(`/api/oee/range?wc=${CUR_OEE_WC}&from=${fromStr}&to=${toStr}`);
   const labels=rows.map(r=>r.date.slice(5));
   const data=rows.map(r=>r.oee!=null?Math.round(r.oee*1000)/10:null);
