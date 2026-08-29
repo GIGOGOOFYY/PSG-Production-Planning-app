@@ -447,6 +447,17 @@ body.dark .ch{background:#111e16}
       <div class="kpi-grid" id="oee-kpis" style="margin-bottom:18px"></div>
 
       <div class="card">
+        <div class="ch"><h3><i class="fa fa-globe"></i> Company OEE Trend — All Work Centers</h3>
+          <select class="fc fc-sm" id="oee-company-trend-range" style="width:150px" onchange="loadCompanyOEETrend()">
+            <option value="30">Last 30 Days</option>
+            <option value="90">Last 90 Days</option>
+            <option value="365">Last 12 Months</option>
+          </select>
+        </div>
+        <div class="cb"><canvas id="oee-company-trend-chart" height="80"></canvas></div>
+      </div>
+
+      <div class="card">
         <div class="ch"><h3><i class="fa fa-chart-line"></i> OEE Trend — <span id="oee-trend-wc-lbl"></span></h3>
           <select class="fc fc-sm" id="oee-trend-range" style="width:150px" onchange="loadOEETrend()">
             <option value="30">Last 30 Days</option>
@@ -833,6 +844,16 @@ function oeeRange(wc,fromStr,toStr){
   while(d<=end){ days.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
   return days.map(ds=>computeOEE(wc,ds));
 }
+// Company-wide OEE per day: average of every configured work center's OEE that day
+// (only work centers with an Ideal Run Rate set, and only days that have data).
+function companyOeeRange(fromStr,toStr){
+  const days=[]; let d=new Date(fromStr+'T00:00:00'); const end=new Date(toStr+'T00:00:00');
+  while(d<=end){ days.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
+  return days.map(ds=>{
+    const vals=WC_SEQUENCE.map(wc=>computeOEE(wc,ds).oee).filter(v=>v!=null);
+    return {date:ds,overall:vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:null};
+  });
+}
 
 async function ins(table,row){const {data,error}=await _sb.from(table).insert(row).select().single(); if(error)throw new Error(error.message); DB[table].push(data); return data;}
 async function upd(table,id,patch){const {error}=await _sb.from(table).update(patch).eq('id',id); if(error)throw new Error(error.message); const r=DB[table].find(x=>x.id===id); if(r)Object.assign(r,patch);}
@@ -1109,6 +1130,10 @@ async function apiHandler(url,opts){
   if(path==='/api/oee/range'){
     const wc=(query.get('wc')||'CT').toUpperCase(), from=query.get('from'), to=query.get('to');
     return oeeRange(wc,from,to);
+  }
+  if(path==='/api/oee/company-range'){
+    const from=query.get('from'), to=query.get('to');
+    return companyOeeRange(from,to);
   }
   if(path==='/api/oee/today'){
     const today=new Date().toISOString().slice(0,10);
@@ -1892,7 +1917,22 @@ async function loadOEE(){
   $('oee-dt-wc-lbl').textContent=`${WN[CUR_OEE_WC]} (${CUR_OEE_WC})`;
   await loadOEEDowntime();
   await loadOEETrend();
+  await loadCompanyOEETrend();
   if(USER?.role==='admin'){ $('oee-settings-section').style.display=''; loadOEESettings(); }
+}
+async function loadCompanyOEETrend(){
+  const days=parseInt($('oee-company-trend-range')?.value||'30');
+  const to=new Date(); const from=new Date(); from.setDate(to.getDate()-days+1);
+  const fromStr=from.toISOString().slice(0,10), toStr=to.toISOString().slice(0,10);
+  const rows=await get(`/api/oee/company-range?from=${fromStr}&to=${toStr}`);
+  const labels=rows.map(r=>r.date.slice(5));
+  const data=rows.map(r=>r.overall!=null?Math.round(r.overall*1000)/10:null);
+  if(window._oeeCompanyChart) window._oeeCompanyChart.destroy();
+  window._oeeCompanyChart=new Chart($('oee-company-trend-chart'),{
+    type:'line',
+    data:{labels,datasets:[{label:'Company OEE %',data,borderColor:'#7c3aed',backgroundColor:'rgba(124,58,237,.12)',fill:true,tension:.25,spanGaps:true,pointRadius:2}]},
+    options:{responsive:true,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>ctx.parsed.y==null?'No data':ctx.parsed.y+'%'}}},scales:{y:{min:0,max:100,ticks:{callback:v=>v+'%'}}}}
+  });
 }
 function renderOeeKpis(r){
   $('oee-kpis').innerHTML=`
