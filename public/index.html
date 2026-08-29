@@ -902,16 +902,20 @@ function earliestOeeDate(wc){
   DB.wc_daily_log.forEach(check); DB.downtime.forEach(check);
   return min;
 }
+// Format a Date using its LOCAL calendar fields (never toISOString() here — that converts
+// to UTC and silently rolls the date back a day for any timezone ahead of UTC, e.g.
+// Pakistan (+5): local midnight Aug 29 becomes "2026-08-28" once UTC-converted).
+function localISO(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function oeeRange(wc,fromStr,toStr){
   const days=[]; let d=new Date(fromStr+'T00:00:00'); const end=new Date(toStr+'T00:00:00');
-  while(d<=end){ days.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
+  while(d<=end){ days.push(localISO(d)); d.setDate(d.getDate()+1); }
   return days.map(ds=>computeOEE(wc,ds));
 }
 // Company-wide OEE per day: average of every configured work center's OEE that day
 // (only work centers with an Ideal Run Rate set, and only days that have data).
 function companyOeeRange(fromStr,toStr){
   const days=[]; let d=new Date(fromStr+'T00:00:00'); const end=new Date(toStr+'T00:00:00');
-  while(d<=end){ days.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
+  while(d<=end){ days.push(localISO(d)); d.setDate(d.getDate()+1); }
   return days.map(ds=>{
     const vals=WC_SEQUENCE.map(wc=>computeOEE(wc,ds).oee).filter(v=>v!=null);
     return {date:ds,overall:vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:null};
@@ -1365,8 +1369,7 @@ async function loadPlan(){
     return;
   }
 
-  const today=new Date(); today.setHours(0,0,0,0);
-  const isToday=planDateStr===today.toISOString().slice(0,10);
+  const isToday=planDateStr===localISO(new Date());
   const html=[];
 
   for(const wc of wcsToShow){
