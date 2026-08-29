@@ -354,8 +354,8 @@ body.dark .ch{background:#111e16}
           <div class="lbl">On Hold</div><div class="val" id="k-hold">—</div><div class="sub">awaiting action</div>
         </div>
         <div class="kpi purple">
-          <i class="fa fa-truck kpi-icon"></i>
-          <div class="lbl">QC Passed</div><div class="val" id="k-qc">—</div><div class="sub">dispatched</div>
+          <i class="fa fa-bolt kpi-icon"></i>
+          <div class="lbl">Overall OEE</div><div class="val" id="k-oee">—</div><div class="sub" id="k-oee-sub">—</div>
         </div>
       </div>
 
@@ -885,6 +885,14 @@ function computeOEE(wc,dateStr){
   const hasData=totalSqft>0||downtimeMin>0;
   const oee=(hasData&&availability!=null&&performance!=null&&quality!=null)?availability*performance*quality:null;
   return {date:dateStr,planned,operating,downtimeMin,totalSqft,rejectSqft,goodSqft,availability,performance,quality,oee,ideal_run_rate:s.ideal_run_rate||0};
+}
+// Drop leading/trailing rows with no value so a sparse chart's first real point sits
+// flush at the left edge (oldest → newest) instead of floating with blank space before it.
+function trimToData(rows,key){
+  let start=0,end=rows.length-1;
+  while(start<=end&&rows[start][key]==null)start++;
+  while(end>=start&&rows[end][key]==null)end--;
+  return start>end?[]:rows.slice(start,end+1);
 }
 // Earliest date any OEE-relevant activity (production or downtime) was logged.
 // Pass a work_center code to scope to one WC, or omit for company-wide (any WC).
@@ -1522,7 +1530,6 @@ async function loadDash(){
   $('k-ip').textContent=d.inProgress;
   $('k-ready').textContent=d.ready;
   $('k-hold').textContent=d.onHold;
-  $('k-qc').textContent=d.qcPassed;
   $('cap-date').textContent='as of '+fmtDate(d.today);
   const labels=PROD_WCS.map(wc=>wc);
   const pcts=PROD_WCS.map(wc=>d.utilization[wc]?.pct||0);
@@ -1570,7 +1577,11 @@ async function loadDash(){
     <td style="font-weight:700">${o.order_qty}</td>
     <td>${wcDots(o)}</td>
   </tr>`).join(''):'<tr><td class="emp" colspan="6"><i class="fa fa-check-circle" style="color:var(--ok);font-size:1.1rem"></i><br>No late orders — great work!</td></tr>';
-  loadOEESnapshot();
+  const oeeSnap=await get('/api/oee/today');
+  $('k-oee').textContent=oeePct(oeeSnap.overall);
+  $('k-oee').style.color=oeeColor(oeeSnap.overall);
+  $('k-oee-sub').textContent=oeeSnap.rows&&oeeSnap.rows.length?'company-wide, today':'no data yet';
+  loadOEESnapshot(oeeSnap);
 }
 
 function capCard(u,wc){
@@ -2105,14 +2116,14 @@ async function loadCompanyOEETrend(){
   // range would otherwise be mostly empty space with one lonely point at the end.
   const earliest=earliestOeeDate();
   fromStr=earliest?(earliest>fromStr?earliest:fromStr):toStr;
-  const rows=await get(`/api/oee/company-range?from=${fromStr}&to=${toStr}`);
+  const rows=trimToData(await get(`/api/oee/company-range?from=${fromStr}&to=${toStr}`),'overall');
   const labels=rows.map(r=>r.date.slice(5));
   const data=rows.map(r=>r.overall!=null?Math.round(r.overall*1000)/10:null);
   if(window._oeeCompanyChart) window._oeeCompanyChart.destroy();
   window._oeeCompanyChart=new Chart($('oee-company-trend-chart'),{
     type:'line',
     data:{labels,datasets:[{label:'Company OEE %',data,borderColor:'#7c3aed',backgroundColor:'rgba(124,58,237,.12)',fill:true,tension:.25,spanGaps:true,pointRadius:2}]},
-    options:{responsive:true,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>ctx.parsed.y==null?'No data':ctx.parsed.y+'%'}}},scales:{y:{min:0,max:100,ticks:{callback:v=>v+'%'}}}}
+    options:{responsive:true,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>ctx.parsed.y==null?'No data':ctx.parsed.y+'%'}}},scales:{x:{offset:false},y:{min:0,max:100,ticks:{callback:v=>v+'%'}}}}
   });
 }
 function renderOeeKpis(r){
@@ -2160,14 +2171,14 @@ async function loadOEETrend(){
   let fromStr=from.toISOString().slice(0,10); const toStr=to.toISOString().slice(0,10);
   const earliest=earliestOeeDate(CUR_OEE_WC);
   fromStr=earliest?(earliest>fromStr?earliest:fromStr):toStr;
-  const rows=await get(`/api/oee/range?wc=${CUR_OEE_WC}&from=${fromStr}&to=${toStr}`);
+  const rows=trimToData(await get(`/api/oee/range?wc=${CUR_OEE_WC}&from=${fromStr}&to=${toStr}`),'oee');
   const labels=rows.map(r=>r.date.slice(5));
   const data=rows.map(r=>r.oee!=null?Math.round(r.oee*1000)/10:null);
   if(window._oeeChart) window._oeeChart.destroy();
   window._oeeChart=new Chart($('oee-trend-chart'),{
     type:'line',
     data:{labels,datasets:[{label:'OEE %',data,borderColor:'#2d7a4f',backgroundColor:'rgba(45,122,79,.12)',fill:true,tension:.25,spanGaps:true,pointRadius:2}]},
-    options:{responsive:true,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>ctx.parsed.y==null?'No data':ctx.parsed.y+'%'}}},scales:{y:{min:0,max:100,ticks:{callback:v=>v+'%'}}}}
+    options:{responsive:true,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>ctx.parsed.y==null?'No data':ctx.parsed.y+'%'}}},scales:{x:{offset:false},y:{min:0,max:100,ticks:{callback:v=>v+'%'}}}}
   });
 }
 async function loadOEESettings(){
@@ -2189,8 +2200,8 @@ async function saveOeeSetting(wc){
   await fetch(`/api/oee/settings/${wc}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   toast(`${wc} OEE settings updated`,'ok'); await reloadAll(); loadOEE();
 }
-async function loadOEESnapshot(){
-  const r=await get('/api/oee/today');
+async function loadOEESnapshot(r){
+  r=r||await get('/api/oee/today');
   $('oee-snap-date').textContent='as of '+fmtDate(r.date);
   if(!r.rows.length){ $('oee-snapshot').innerHTML=`<div class="emp" style="padding:14px 0">No OEE data recorded yet today — enter production &amp; downtime on a work center page to see it here.</div>`; return; }
   $('oee-snapshot').innerHTML=`
